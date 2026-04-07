@@ -1,0 +1,14 @@
+{
+  "kind": "teleapp_soak_report",
+  "generated_at": "2026-04-07T15:05:17",
+  "requests": 20,
+  "chats": 3,
+  "duration_seconds": 0.057,
+  "passed": true,
+  "details": {
+    "result": "ok",
+    "seen_count": 20,
+    "final_busy": false,
+    "final_total_queued_requests": 0
+  }
+}

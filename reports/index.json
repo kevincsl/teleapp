@@ -1,0 +1,15 @@
+{
+  "kind": "teleapp_report_index",
+  "report_count": 1,
+  "entries": [
+    {
+      "file": "soak-report-20260407-150517.json",
+      "kind": "teleapp_soak_report",
+      "generated_at": "2026-04-07T15:05:17",
+      "passed": true,
+      "requests": 20,
+      "chats": 3,
+      "duration_seconds": 0.057
+    }
+  ]
+}
