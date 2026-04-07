@@ -1,9 +1,9 @@
 from teleapp import TeleApp
 
-# Example: minimal Flask-like app.
+# Example: minimal decorator-based app.
 # Purpose:
 # - demonstrates the smallest in-process TeleApp app
-# - useful as the first example when learning the framework API
+# - this is the recommended first example when learning teleapp
 #
 # Start:
 # - create .env with TELEAPP_TOKEN and TELEAPP_ALLOWED_USER_ID

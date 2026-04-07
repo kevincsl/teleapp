@@ -45,6 +45,7 @@ class TeleappConfig:
     reload_quiet_seconds: int = 2
     reload_poll_seconds: int = 1
     restart_backoff_seconds: int = 1
+    watch_mode: str = "app-dir"
     watch_paths: list[Path] | None = None
 
 
@@ -60,6 +61,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--reload-quiet-seconds", type=int, default=_read_int_env("TELEAPP_RELOAD_QUIET_SECONDS", 2))
     parser.add_argument("--reload-poll-seconds", type=int, default=_read_int_env("TELEAPP_RELOAD_POLL_SECONDS", 1))
     parser.add_argument("--restart-backoff-seconds", type=int, default=_read_int_env("TELEAPP_RESTART_BACKOFF_SECONDS", 1))
+    parser.add_argument("--watch-mode", choices=["app-dir", "app-file-only"], default=os.getenv("TELEAPP_WATCH_MODE", "app-dir"))
     parser.add_argument("--watch", action="append", default=[])
     return parser
 
@@ -78,10 +80,13 @@ def load_config(args: argparse.Namespace) -> TeleappConfig:
     if args.allowed_user_id <= 0:
         raise SystemExit("TELEAPP_ALLOWED_USER_ID must be a positive integer.")
 
+    watch_mode = str(getattr(args, "watch_mode", "app-dir") or "app-dir").strip().lower()
     watch_paths: list[Path] = []
     raw_watch = list(args.watch or [])
     if raw_watch:
         watch_paths.extend(Path(item).expanduser().resolve() for item in raw_watch)
+    elif watch_mode == "app-file-only":
+        watch_paths.append(app_path)
     else:
         watch_paths.append(app_path.parent)
 
@@ -97,6 +102,7 @@ def load_config(args: argparse.Namespace) -> TeleappConfig:
         reload_quiet_seconds=max(1, args.reload_quiet_seconds),
         reload_poll_seconds=max(1, args.reload_poll_seconds),
         restart_backoff_seconds=max(0, getattr(args, "restart_backoff_seconds", 1)),
+        watch_mode=watch_mode,
         watch_paths=watch_paths,
     )
 
@@ -113,6 +119,7 @@ def build_runtime_config(
     reload_quiet_seconds: int | None = None,
     reload_poll_seconds: int | None = None,
     restart_backoff_seconds: int | None = None,
+    watch_mode: str | None = None,
     watch_paths: list[str | Path] | None = None,
 ) -> TeleappConfig:
     resolved_token = (telegram_token if telegram_token is not None else os.getenv("TELEAPP_TOKEN", "")).strip()
@@ -146,6 +153,7 @@ def build_runtime_config(
         if restart_backoff_seconds is not None
         else _read_int_env("TELEAPP_RESTART_BACKOFF_SECONDS", 1)
     )
+    resolved_watch_mode = (watch_mode or os.getenv("TELEAPP_WATCH_MODE", "app-dir")).strip().lower() or "app-dir"
     resolved_app_value = app_path if app_path is not None else os.getenv("TELEAPP_APP", "")
     resolved_app_path = (
         Path(resolved_app_value).expanduser().resolve()
@@ -154,7 +162,10 @@ def build_runtime_config(
     )
     resolved_watch_paths = [Path(path).expanduser().resolve() for path in (watch_paths or [])]
     if resolved_app_path is not None and not resolved_watch_paths:
-        resolved_watch_paths = [resolved_app_path.parent]
+        if resolved_watch_mode == "app-file-only":
+            resolved_watch_paths = [resolved_app_path]
+        else:
+            resolved_watch_paths = [resolved_app_path.parent]
     return TeleappConfig(
         telegram_token=resolved_token,
         allowed_user_id=resolved_allowed_user_id,
@@ -166,5 +177,6 @@ def build_runtime_config(
         reload_quiet_seconds=max(1, resolved_reload_quiet_seconds),
         reload_poll_seconds=max(1, resolved_reload_poll_seconds),
         restart_backoff_seconds=max(0, resolved_restart_backoff_seconds),
+        watch_mode=resolved_watch_mode,
         watch_paths=resolved_watch_paths,
     )

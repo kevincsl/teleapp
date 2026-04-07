@@ -17,7 +17,7 @@ import sys
 # - if running from Telegram, /restart restarts the runtime but does not "stop" it
 #
 # Note:
-# - this file is intentionally not Flask-like
+# - this file is intentionally not the primary learning example
 # - it should remain a pure subprocess contract example
 
 

@@ -31,6 +31,7 @@ TELEAPP_HOT_RELOAD=1
 TELEAPP_AUTO_RESTART_ON_CRASH=1
 TELEAPP_RELOAD_QUIET_SECONDS=2
 TELEAPP_RESTART_BACKOFF_SECONDS=1
+TELEAPP_WATCH_MODE=app-dir
 ```
 
 ## Bootstrap
@@ -132,6 +133,12 @@ To manually test hot reload:
 4. Wait for the quiet window to expire
 5. Confirm the hosted app restarts
 6. Send another Telegram message and confirm behavior still works
+
+Default watch semantics:
+
+- `TELEAPP_APP` is the process that gets restarted
+- `TELEAPP_WATCH_MODE=app-dir` means the hosted app directory is watched
+- `TELEAPP_WATCH_MODE=app-file-only` means only the hosted app file is watched
 
 ## Crash auto-restart check
 

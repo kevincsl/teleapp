@@ -1,6 +1,6 @@
 # teleapp
 
-`teleapp` is a Telegram-hosted Python app runtime with a Flask-like programming model.
+`teleapp` is a Telegram-hosted Python app runtime with a decorator-based application model.
 
 The project lets you write local Python apps that behave like Telegram services without teaching those apps about the Telegram Bot API directly.
 
@@ -38,7 +38,7 @@ Start from [`.env.example`](/C:/Users/kevin/codex/tgrobot/teleapp/.env.example) 
 ```env
 TELEAPP_TOKEN=<telegram-bot-token>
 TELEAPP_ALLOWED_USER_ID=<telegram-user-id>
-TELEAPP_APP=examples/echo_app.py
+TELEAPP_APP=examples/hello_app.py
 ```
 
 ### 3. Run the bundled example
@@ -59,10 +59,10 @@ The bot will start polling Telegram and forward text into the hosted app.
 
 Example files:
 
+- [`examples/hello_app.py`](/C:/Users/kevin/codex/tgrobot/teleapp/examples/hello_app.py)
+  recommended starting point for learning teleapp
 - [`examples/echo_app.py`](/C:/Users/kevin/codex/tgrobot/teleapp/examples/echo_app.py)
   subprocess-contract example
-- [`examples/hello_app.py`](/C:/Users/kevin/codex/tgrobot/teleapp/examples/hello_app.py)
-  minimal Flask-like example
 - [`examples/media_app.py`](/C:/Users/kevin/codex/tgrobot/teleapp/examples/media_app.py)
   first media-enabled example
 - [`examples/media_audio_app.py`](/C:/Users/kevin/codex/tgrobot/teleapp/examples/media_audio_app.py)
@@ -100,9 +100,9 @@ Example output:
 
 Instead of launching a subprocess, you attach Python callables or handler objects directly to `TeleApp`.
 
-This is the mode that makes the framework feel Flask-like.
+This is the mode that gives teleapp its decorator-based application style.
 
-## Flask-like usage
+## App usage
 
 ### Minimal app
 
@@ -354,6 +354,7 @@ Important variables:
 - `TELEAPP_RELOAD_QUIET_SECONDS`
 - `TELEAPP_RELOAD_POLL_SECONDS`
 - `TELEAPP_RESTART_BACKOFF_SECONDS`
+- `TELEAPP_WATCH_MODE`
 
 The full template lives in [`.env.example`](/C:/Users/kevin/codex/tgrobot/teleapp/.env.example).
 
@@ -370,6 +371,27 @@ Before and after that:
 - all `before_message` hooks run before the selected handler
 - all `after_message` hooks run after the handler response is normalized
 - `on_error` hooks run if dispatch raises
+
+## Hot reload watch mode
+
+The hosted app process that gets restarted is always `TELEAPP_APP`.
+
+The watched files that trigger that restart are configurable:
+
+- `app-dir`
+  default mode; watch the hosted app directory
+- `app-file-only`
+  watch only the hosted app file itself
+
+Current default:
+
+- `TELEAPP_WATCH_MODE=app-dir`
+
+This means:
+
+- `teleapp myapp.py` restarts `myapp.py`
+- file changes are watched in the app directory by default
+- `teleapp` framework files are not watched unless you explicitly add them
 
 ## Queue and session model
 

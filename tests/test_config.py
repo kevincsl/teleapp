@@ -23,6 +23,7 @@ class ConfigTests(unittest.TestCase):
             os.environ["TELEAPP_APP"] = "examples/echo_app.py"
             os.environ["TELEAPP_AUTO_RESTART_ON_CRASH"] = "1"
             os.environ["TELEAPP_RESTART_BACKOFF_SECONDS"] = "3"
+            os.environ["TELEAPP_WATCH_MODE"] = "app-file-only"
             config = build_runtime_config()
             self.assertEqual(config.telegram_token, "env-token")
             self.assertEqual(config.allowed_user_id, 55)
@@ -30,6 +31,8 @@ class ConfigTests(unittest.TestCase):
             self.assertEqual(config.app_path, Path("examples/echo_app.py").resolve())
             self.assertTrue(config.auto_restart_on_crash)
             self.assertEqual(config.restart_backoff_seconds, 3)
+            self.assertEqual(config.watch_mode, "app-file-only")
+            self.assertEqual(config.watch_paths, [Path("examples/echo_app.py").resolve()])
         finally:
             for key, value in old_values.items():
                 if value is None:
@@ -38,6 +41,7 @@ class ConfigTests(unittest.TestCase):
                     os.environ[key] = value
             os.environ.pop("TELEAPP_AUTO_RESTART_ON_CRASH", None)
             os.environ.pop("TELEAPP_RESTART_BACKOFF_SECONDS", None)
+            os.environ.pop("TELEAPP_WATCH_MODE", None)
 
     def test_load_config_defaults_watch_path_to_app_parent(self) -> None:
         config = load_config(
@@ -55,6 +59,7 @@ class ConfigTests(unittest.TestCase):
         )
         self.assertEqual(config.app_path.name, "echo_app.py")
         self.assertEqual(config.watch_paths, [config.app_path.parent])
+        self.assertEqual(config.watch_mode, "app-dir")
         self.assertTrue(config.hot_reload)
 
     def test_load_config_uses_explicit_watch_paths(self) -> None:
@@ -70,6 +75,7 @@ class ConfigTests(unittest.TestCase):
                 reload_quiet_seconds=5,
                 reload_poll_seconds=3,
                 restart_backoff_seconds=0,
+                watch_mode="app-file-only",
                 watch=["examples", "teleapp"],
             )
         )
@@ -79,6 +85,7 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(config.reload_quiet_seconds, 5)
         self.assertEqual(config.reload_poll_seconds, 3)
         self.assertEqual(config.restart_backoff_seconds, 0)
+        self.assertEqual(config.watch_mode, "app-file-only")
         self.assertEqual(
             config.watch_paths,
             [

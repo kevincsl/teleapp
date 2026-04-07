@@ -59,8 +59,8 @@ Stop any running example by:
 
 ### `hello_app.py`
 
-- type: minimal Flask-like example
-- purpose: simplest in-process text app
+- type: minimal decorator-based example
+- purpose: simplest in-process text app and the recommended first learning example
 
 ### `media_app.py`
 

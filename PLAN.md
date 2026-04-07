@@ -2,7 +2,7 @@
 
 ## Positioning
 
-`teleapp` is not a Telegram bot wrapper and not a Flask clone.
+`teleapp` is not a Telegram bot wrapper and not a web framework clone.
 
 It is a runtime that hosts a local Python app behind Telegram:
 

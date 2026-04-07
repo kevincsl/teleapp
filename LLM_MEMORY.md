@@ -4,7 +4,7 @@ This file is for future maintainers and LLMs. It should be read before making ar
 
 ## Project identity
 
-`teleapp` is a Telegram-hosted Python app runtime with a Flask-like API.
+`teleapp` is a Telegram-hosted Python app runtime with a decorator-based API.
 
 It is not:
 
@@ -119,6 +119,25 @@ Current queue/session design:
 This design is intentional because the runtime still assumes one hosted app instance.
 
 If future work introduces parallel execution, this is a major architectural change and should not be done casually.
+
+## Hot reload watch semantics
+
+Important invariant:
+
+- the process that is restarted is always the hosted app (`TELEAPP_APP`)
+
+Current watch trigger modes:
+
+- `app-dir`
+- `app-file-only`
+
+Default is `app-dir`.
+
+If this default changes, update:
+
+- `README.md`
+- `OPERATIONS.md`
+- tests in `tests/test_config.py`
 
 ## Stability rules already implemented
 
