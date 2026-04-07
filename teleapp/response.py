@@ -59,6 +59,28 @@ class PhotoResponse(Response):
 
 
 @dataclass(slots=True)
+class AnimationResponse(Response):
+    file_path: str | None = None
+    file_id: str | None = None
+    caption: str | None = None
+    event_type: str = "animation"
+
+    def to_event(self, ctx: MessageContext) -> AppEvent:
+        return AppEvent(
+            type=self.event_type,
+            text=self.text,
+            chat_id=ctx.chat_id,
+            request_id=ctx.request_id,
+            stream="inprocess",
+            raw={
+                "file_path": self.file_path,
+                "file_id": self.file_id,
+                "caption": self.caption,
+            },
+        )
+
+
+@dataclass(slots=True)
 class DocumentResponse(Response):
     file_path: str | None = None
     file_id: str | None = None
@@ -113,6 +135,30 @@ class LocationResponse(Response):
             raw={
                 "latitude": self.latitude,
                 "longitude": self.longitude,
+            },
+        )
+
+
+@dataclass(slots=True)
+class VenueResponse(Response):
+    latitude: float = 0.0
+    longitude: float = 0.0
+    title: str = ""
+    address: str = ""
+    event_type: str = "venue"
+
+    def to_event(self, ctx: MessageContext) -> AppEvent:
+        return AppEvent(
+            type=self.event_type,
+            text=self.text,
+            chat_id=ctx.chat_id,
+            request_id=ctx.request_id,
+            stream="inprocess",
+            raw={
+                "latitude": self.latitude,
+                "longitude": self.longitude,
+                "title": self.title,
+                "address": self.address,
             },
         )
 

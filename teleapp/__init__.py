@@ -3,6 +3,7 @@
 from teleapp.app import TeleApp
 from teleapp.config import TeleappConfig, build_parser, build_runtime_config, load_config
 from teleapp.context import (
+    AnimationInput,
     AudioInput,
     CallbackQueryInput,
     ContactInput,
@@ -12,12 +13,14 @@ from teleapp.context import (
     PhotoInput,
     PollInput,
     StickerInput,
+    VenueInput,
     VideoInput,
     VoiceInput,
 )
 from teleapp.protocol import AppEvent, decode_output_line, encode_input_event
 from teleapp.response import ErrorResponse, Response, StatusResponse, TextResponse
 from teleapp.response import (
+    AnimationResponse,
     AudioResponse,
     Button,
     ButtonResponse,
@@ -27,12 +30,15 @@ from teleapp.response import (
     PhotoResponse,
     PollResponse,
     StickerResponse,
+    VenueResponse,
     VideoResponse,
     VoiceResponse,
 )
 
 __all__ = [
     "AppEvent",
+    "AnimationInput",
+    "AnimationResponse",
     "AudioInput",
     "AudioResponse",
     "Button",
@@ -57,6 +63,8 @@ __all__ = [
     "TeleApp",
     "TeleappConfig",
     "TextResponse",
+    "VenueInput",
+    "VenueResponse",
     "VideoInput",
     "VideoResponse",
     "VoiceInput",

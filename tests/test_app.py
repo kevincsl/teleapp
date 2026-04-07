@@ -5,6 +5,7 @@ from argparse import Namespace
 from pathlib import Path
 
 from teleapp import (
+    AnimationResponse,
     AudioResponse,
     Button,
     ButtonResponse,
@@ -18,6 +19,7 @@ from teleapp import (
     StickerResponse,
     TeleApp,
     TextResponse,
+    VenueResponse,
     VoiceResponse,
     build_runtime_config,
 )
@@ -147,11 +149,13 @@ class TeleAppTests(unittest.TestCase):
         self.assertEqual(DocumentResponse(text="", file_id="file").event_type, "document")
         self.assertEqual(LocationResponse(text="", latitude=1.0, longitude=2.0).event_type, "location")
         self.assertEqual(ButtonResponse(text="pick", buttons=[Button("A", "a")]).event_type, "buttons")
+        self.assertEqual(AnimationResponse(text="", file_id="anim").event_type, "animation")
         self.assertEqual(AudioResponse(text="", file_id="audio").event_type, "audio")
         self.assertEqual(VoiceResponse(text="", file_id="voice").event_type, "voice")
         self.assertEqual(StickerResponse(sticker="sticker").event_type, "sticker")
         self.assertEqual(ContactResponse(text="", phone_number="123", first_name="A").event_type, "contact")
         self.assertEqual(PollResponse(text="", question="Q", options=["A", "B"]).event_type, "poll")
+        self.assertEqual(VenueResponse(text="", latitude=1.0, longitude=2.0, title="T", address="A").event_type, "venue")
 
 
 if __name__ == "__main__":

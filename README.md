@@ -69,6 +69,8 @@ Example files:
   second media batch example for voice, audio, and sticker
 - [`examples/media_misc_app.py`](/C:/Users/kevin/codex/tgrobot/teleapp/examples/media_misc_app.py)
   third media batch example for video, poll, and contact
+- [`examples/media_ai_app.py`](/C:/Users/kevin/codex/tgrobot/teleapp/examples/media_ai_app.py)
+  AI-focused example for animation and venue
 - [`examples/callback_app.py`](/C:/Users/kevin/codex/tgrobot/teleapp/examples/callback_app.py)
   callback query / inline button example
 
@@ -237,6 +239,8 @@ Handlers may return:
 - [`LocationResponse`](/C:/Users/kevin/codex/tgrobot/teleapp/teleapp/response.py)
 - [`StickerResponse`](/C:/Users/kevin/codex/tgrobot/teleapp/teleapp/response.py)
 - [`ButtonResponse`](/C:/Users/kevin/codex/tgrobot/teleapp/teleapp/response.py)
+- [`AnimationResponse`](/C:/Users/kevin/codex/tgrobot/teleapp/teleapp/response.py)
+- [`VenueResponse`](/C:/Users/kevin/codex/tgrobot/teleapp/teleapp/response.py)
 - [`AppEvent`](/C:/Users/kevin/codex/tgrobot/teleapp/teleapp/protocol.py)
 
 Examples:
@@ -337,6 +341,23 @@ Current response types relevant for this batch:
 - `VideoResponse`
 - `PollResponse`
 - `ContactResponse`
+
+## Additional AI-relevant types
+
+Additional Telegram-native types now included because they are practical for AI app workflows:
+
+- `animation`
+- `venue`
+
+Current context fields:
+
+- `animation`
+- `venue`
+
+Current response types:
+
+- `AnimationResponse`
+- `VenueResponse`
 
 ## Configuration
 

@@ -7,6 +7,7 @@ from telegram.ext import ApplicationBuilder, CallbackQueryHandler, CommandHandle
 
 from teleapp.config import TeleappConfig
 from teleapp.context import (
+    AnimationInput,
     AudioInput,
     CallbackQueryInput,
     ContactInput,
@@ -16,6 +17,7 @@ from teleapp.context import (
     PhotoInput,
     PollInput,
     StickerInput,
+    VenueInput,
     VideoInput,
     VoiceInput,
 )
@@ -56,9 +58,11 @@ class TelegramGateway:
             MessageHandler(
                 (filters.TEXT & ~filters.COMMAND)
                 | filters.PHOTO
+                | filters.ANIMATION
                 | filters.Document.ALL
                 | filters.Sticker.ALL
                 | filters.LOCATION
+                | filters.Venue.ALL
                 | filters.VOICE
                 | filters.AUDIO
                 | filters.VIDEO
@@ -214,6 +218,15 @@ class TelegramGateway:
                 await app.bot.send_photo(chat_id=chat_id, photo=raw["file_id"], caption=raw.get("caption") or None)
                 return
 
+        if event_type == "animation":
+            if raw.get("file_path"):
+                with open(raw["file_path"], "rb") as fh:
+                    await app.bot.send_animation(chat_id=chat_id, animation=fh, caption=raw.get("caption") or None)
+                return
+            if raw.get("file_id"):
+                await app.bot.send_animation(chat_id=chat_id, animation=raw["file_id"], caption=raw.get("caption") or None)
+                return
+
         if event_type == "document":
             if raw.get("file_path"):
                 with open(raw["file_path"], "rb") as fh:
@@ -229,6 +242,22 @@ class TelegramGateway:
 
         if event_type == "location" and raw.get("latitude") is not None and raw.get("longitude") is not None:
             await app.bot.send_location(chat_id=chat_id, latitude=raw["latitude"], longitude=raw["longitude"])
+            return
+
+        if (
+            event_type == "venue"
+            and raw.get("latitude") is not None
+            and raw.get("longitude") is not None
+            and raw.get("title")
+            and raw.get("address")
+        ):
+            await app.bot.send_venue(
+                chat_id=chat_id,
+                latitude=raw["latitude"],
+                longitude=raw["longitude"],
+                title=raw["title"],
+                address=raw["address"],
+            )
             return
 
         if event_type == "audio":
@@ -303,6 +332,18 @@ class TelegramGateway:
                 for item in message.photo
             ]
 
+        animation = None
+        if message.animation:
+            animation = AnimationInput(
+                file_id=message.animation.file_id,
+                file_unique_id=message.animation.file_unique_id,
+                width=message.animation.width,
+                height=message.animation.height,
+                duration=message.animation.duration,
+                file_name=message.animation.file_name,
+                mime_type=message.animation.mime_type,
+            )
+
         document = None
         if message.document:
             document = DocumentInput(
@@ -326,6 +367,15 @@ class TelegramGateway:
             location = LocationInput(
                 latitude=message.location.latitude,
                 longitude=message.location.longitude,
+            )
+
+        venue = None
+        if message.venue:
+            venue = VenueInput(
+                latitude=message.venue.location.latitude,
+                longitude=message.venue.location.longitude,
+                title=message.venue.title,
+                address=message.venue.address,
             )
 
         voice = None
@@ -378,10 +428,12 @@ class TelegramGateway:
             chat_id=update.effective_chat.id,
             text=message.text or message.caption or "",
             caption=message.caption,
+            animation=animation,
             photos=photos,
             document=document,
             sticker=sticker,
             location=location,
+            venue=venue,
             audio=audio,
             voice=voice,
             video=video,

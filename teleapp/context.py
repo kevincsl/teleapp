@@ -13,6 +13,17 @@ class PhotoInput:
 
 
 @dataclass(slots=True)
+class AnimationInput:
+    file_id: str
+    file_unique_id: str
+    width: int | None = None
+    height: int | None = None
+    duration: int | None = None
+    file_name: str | None = None
+    mime_type: str | None = None
+
+
+@dataclass(slots=True)
 class DocumentInput:
     file_id: str
     file_unique_id: str
@@ -32,6 +43,14 @@ class StickerInput:
 class LocationInput:
     latitude: float
     longitude: float
+
+
+@dataclass(slots=True)
+class VenueInput:
+    latitude: float
+    longitude: float
+    title: str
+    address: str
 
 
 @dataclass(slots=True)
@@ -88,10 +107,12 @@ class MessageContext:
     request_id: str | None = None
     command: str | None = None
     caption: str | None = None
+    animation: AnimationInput | None = None
     photos: list[PhotoInput] | None = None
     document: DocumentInput | None = None
     sticker: StickerInput | None = None
     location: LocationInput | None = None
+    venue: VenueInput | None = None
     audio: AudioInput | None = None
     voice: VoiceInput | None = None
     video: VideoInput | None = None

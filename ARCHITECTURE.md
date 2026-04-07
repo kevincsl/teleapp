@@ -11,6 +11,7 @@ Current media support tiers:
 - first batch: photo, document, location, sticker, callback buttons
 - second batch: voice, audio, sticker as first-class output
 - third batch: video, poll, contact
+- additional AI-relevant types: animation, venue
 
 There are two execution modes:
 

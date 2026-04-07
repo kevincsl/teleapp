@@ -77,6 +77,11 @@ Stop any running example by:
 - type: third media batch example
 - purpose: video, poll, and contact handling
 
+### `media_ai_app.py`
+
+- type: AI-oriented media example
+- purpose: animation and venue handling
+
 ### `callback_app.py`
 
 - type: callback query example

@@ -43,6 +43,7 @@ Implemented so far:
 - first batch: photo, document, location, sticker, callback buttons
 - second batch: voice, audio, sticker output refinement
 - third batch: video, poll, contact
+- additional AI-relevant types: animation, venue
 
 When media support changes, update:
 
