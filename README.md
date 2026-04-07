@@ -416,6 +416,7 @@ teleapp/
   pyproject.toml
   README.md
   scripts/
+    build_report_index.py
     run_reload_probe.py
     run_soak.py
     run_telegram_smoke.py
