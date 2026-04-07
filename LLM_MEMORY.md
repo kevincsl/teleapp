@@ -36,6 +36,20 @@ There are two valid hosting modes.
 - `supervisor.py` dispatches it without spawning a subprocess
 - results are normalized through `response.py`
 
+## Media support status
+
+Implemented so far:
+
+- first batch: photo, document, location, sticker, callback buttons
+- second batch: voice, audio, sticker output refinement
+- third batch: video, poll, contact
+
+When media support changes, update:
+
+- `README.md`
+- `ARCHITECTURE.md`
+- this file
+
 ## Framework-style API surface
 
 The intended high-level user API is:

@@ -11,6 +11,7 @@ At this stage, `teleapp` supports:
 - per-chat request queues
 - hot reload with debounce
 - crash auto-restart
+- first media batch: photo, document, location, sticker, and buttons/callbacks
 - `.env`-based configuration
 - a small public API surface designed for reuse
 
@@ -55,6 +56,21 @@ Linux/macOS:
 ```
 
 The bot will start polling Telegram and forward text into the hosted app.
+
+Example files:
+
+- [`examples/echo_app.py`](/C:/Users/kevin/codex/tgrobot/teleapp/examples/echo_app.py)
+  subprocess-contract example
+- [`examples/hello_app.py`](/C:/Users/kevin/codex/tgrobot/teleapp/examples/hello_app.py)
+  minimal Flask-like example
+- [`examples/media_app.py`](/C:/Users/kevin/codex/tgrobot/teleapp/examples/media_app.py)
+  first media-enabled example
+- [`examples/media_audio_app.py`](/C:/Users/kevin/codex/tgrobot/teleapp/examples/media_audio_app.py)
+  second media batch example for voice, audio, and sticker
+- [`examples/media_misc_app.py`](/C:/Users/kevin/codex/tgrobot/teleapp/examples/media_misc_app.py)
+  third media batch example for video, poll, and contact
+- [`examples/callback_app.py`](/C:/Users/kevin/codex/tgrobot/teleapp/examples/callback_app.py)
+  callback query / inline button example
 
 ## Core idea
 
@@ -216,6 +232,11 @@ Handlers may return:
 - [`TextResponse`](/C:/Users/kevin/codex/tgrobot/teleapp/teleapp/response.py)
 - [`StatusResponse`](/C:/Users/kevin/codex/tgrobot/teleapp/teleapp/response.py)
 - [`ErrorResponse`](/C:/Users/kevin/codex/tgrobot/teleapp/teleapp/response.py)
+- [`PhotoResponse`](/C:/Users/kevin/codex/tgrobot/teleapp/teleapp/response.py)
+- [`DocumentResponse`](/C:/Users/kevin/codex/tgrobot/teleapp/teleapp/response.py)
+- [`LocationResponse`](/C:/Users/kevin/codex/tgrobot/teleapp/teleapp/response.py)
+- [`StickerResponse`](/C:/Users/kevin/codex/tgrobot/teleapp/teleapp/response.py)
+- [`ButtonResponse`](/C:/Users/kevin/codex/tgrobot/teleapp/teleapp/response.py)
 - [`AppEvent`](/C:/Users/kevin/codex/tgrobot/teleapp/teleapp/protocol.py)
 
 Examples:
@@ -240,6 +261,82 @@ async def noop(ctx):
 async def fail(ctx):
     return ErrorResponse("something failed")
 ```
+
+Media examples:
+
+```python
+from teleapp import Button, ButtonResponse, LocationResponse, PhotoResponse
+
+@app.command("/where")
+async def where(ctx):
+    return LocationResponse(text="Taipei", latitude=25.0330, longitude=121.5654)
+
+@app.command("/menu")
+async def menu(ctx):
+    return ButtonResponse("Choose one", buttons=[Button("A", "choice:a"), Button("B", "choice:b")])
+
+@app.command("/image")
+async def image(ctx):
+    return PhotoResponse(text="", file_path="output/demo.png", caption="demo")
+```
+
+## First media batch
+
+The first integrated Telegram-native I/O batch now includes:
+
+- photo input/output
+- document input/output
+- location input/output
+- sticker input/output
+- callback buttons output
+
+Current context fields added for this batch:
+
+- `photos`
+- `document`
+- `sticker`
+- `location`
+- `callback_query`
+
+## Second media batch
+
+The second integrated Telegram-native I/O batch now includes:
+
+- voice input/output
+- audio input/output
+- sticker output as a first-class response type
+
+Current context fields relevant for this batch:
+
+- `voice`
+- `audio`
+- `sticker`
+
+Current response types relevant for this batch:
+
+- `VoiceResponse`
+- `AudioResponse`
+- `StickerResponse`
+
+## Third media batch
+
+The third integrated Telegram-native I/O batch now includes:
+
+- video input/output
+- poll input/output
+- contact input/output
+
+Current context fields relevant for this batch:
+
+- `video`
+- `poll`
+- `contact`
+
+Current response types relevant for this batch:
+
+- `VideoResponse`
+- `PollResponse`
+- `ContactResponse`
 
 ## Configuration
 
@@ -482,7 +579,7 @@ Current limitations still worth keeping in mind:
 
 - only one hosted app per runtime process
 - only one allowed Telegram user
-- no media/file transport yet
+- media support is implemented in batches and not every Telegram type is covered yet
 - no persistent request replay
 - hot reload is still polling-based
 - no real-world Telegram soak test has been completed yet

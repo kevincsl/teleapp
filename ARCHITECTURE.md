@@ -6,6 +6,12 @@
 
 The runtime has one job: connect Telegram input to a hosted application while supervising lifecycle, queueing, restart, and reload behavior.
 
+Current media support tiers:
+
+- first batch: photo, document, location, sticker, callback buttons
+- second batch: voice, audio, sticker as first-class output
+- third batch: video, poll, contact
+
 There are two execution modes:
 
 1. subprocess mode

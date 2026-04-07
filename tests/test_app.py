@@ -4,7 +4,23 @@ import unittest
 from argparse import Namespace
 from pathlib import Path
 
-from teleapp import ErrorResponse, StatusResponse, TeleApp, TextResponse, build_runtime_config
+from teleapp import (
+    AudioResponse,
+    Button,
+    ButtonResponse,
+    ContactResponse,
+    DocumentResponse,
+    ErrorResponse,
+    LocationResponse,
+    PhotoResponse,
+    PollResponse,
+    StatusResponse,
+    StickerResponse,
+    TeleApp,
+    TextResponse,
+    VoiceResponse,
+    build_runtime_config,
+)
 
 
 class DummyHandler:
@@ -127,6 +143,15 @@ class TeleAppTests(unittest.TestCase):
         self.assertEqual(TextResponse("ok").event_type, "output")
         self.assertEqual(StatusResponse("wait").event_type, "status")
         self.assertEqual(ErrorResponse("bad").event_type, "error")
+        self.assertEqual(PhotoResponse(text="", file_id="file").event_type, "photo")
+        self.assertEqual(DocumentResponse(text="", file_id="file").event_type, "document")
+        self.assertEqual(LocationResponse(text="", latitude=1.0, longitude=2.0).event_type, "location")
+        self.assertEqual(ButtonResponse(text="pick", buttons=[Button("A", "a")]).event_type, "buttons")
+        self.assertEqual(AudioResponse(text="", file_id="audio").event_type, "audio")
+        self.assertEqual(VoiceResponse(text="", file_id="voice").event_type, "voice")
+        self.assertEqual(StickerResponse(sticker="sticker").event_type, "sticker")
+        self.assertEqual(ContactResponse(text="", phone_number="123", first_name="A").event_type, "contact")
+        self.assertEqual(PollResponse(text="", question="Q", options=["A", "B"]).event_type, "poll")
 
 
 if __name__ == "__main__":

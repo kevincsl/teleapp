@@ -5,7 +5,7 @@ from collections.abc import Callable
 
 from teleapp.config import TeleappConfig, build_parser, build_runtime_config, load_config
 from teleapp.context import MessageContext
-from teleapp.response import ErrorResponse, Response, coerce_response
+from teleapp.response import ButtonResponse, ErrorResponse, Response, coerce_response
 from teleapp.telegram_gateway import TelegramGateway
 
 
@@ -159,6 +159,11 @@ class TeleApp:
         return result
 
     def _resolve_handler(self, ctx: MessageContext):
+        if ctx.callback_query and ctx.callback_query.data:
+            command_handler = self._command_handlers.get(ctx.callback_query.data)
+            if command_handler is not None:
+                return command_handler
+
         if ctx.command:
             command_handler = self._command_handlers.get(ctx.command)
             if command_handler is not None:
