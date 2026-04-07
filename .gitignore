@@ -2,3 +2,10 @@ __pycache__/
 *.pyc
 .tmp_install/
 *.egg-info/
+.env
+.venv/
+*.log
+build/
+dist/
+.pkgtest-venv/
+.pkgtest-app/

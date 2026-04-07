@@ -17,7 +17,37 @@ At this stage, `teleapp` supports:
 
 ## Quick start
 
-### 1. Bootstrap the project
+### 1. Install from GitHub
+
+Windows:
+
+```powershell
+python -m venv .venv
+.venv\Scripts\pip install "git+https://github.com/kevincsl/teleapp.git@main"
+```
+
+Linux/macOS:
+
+```bash
+python -m venv .venv
+.venv/bin/pip install "git+https://github.com/kevincsl/teleapp.git@main"
+```
+
+To pin a version, prefer a tag:
+
+```powershell
+.venv\Scripts\pip install "git+https://github.com/kevincsl/teleapp.git@v0.1.0"
+```
+
+### 2. Create your app or install from source
+
+Create a starter app with the installed CLI:
+
+```powershell
+.venv\Scripts\teleapp init my_teleapp_app
+```
+
+If you are developing `teleapp` itself from this repository, bootstrap the local project instead:
 
 Windows:
 
@@ -31,7 +61,7 @@ Linux/macOS:
 ./bootstrap_teleapp.sh
 ```
 
-### 2. Create `.env`
+### 3. Create `.env`
 
 Start from [`.env.example`](/C:/Users/kevin/codex/tgrobot/teleapp/.env.example) and fill at least:
 
@@ -41,7 +71,7 @@ TELEAPP_ALLOWED_USER_ID=<telegram-user-id>
 TELEAPP_APP=examples/hello_app.py
 ```
 
-### 3. Run the bundled example
+### 4. Run the bundled example
 
 Windows:
 
@@ -73,6 +103,80 @@ Example files:
   AI-focused example for animation and venue
 - [`examples/callback_app.py`](/C:/Users/kevin/codex/tgrobot/teleapp/examples/callback_app.py)
   callback query / inline button example
+
+## Packaging
+
+`teleapp` can be built as a standard Python source distribution and wheel, then installed into a fresh virtual environment with `pip`.
+
+If you do not want to publish to PyPI, users can install straight from GitHub because the project already exposes standard Python package metadata in [`pyproject.toml`](/C:/Users/kevin/codex/tgrobot/teleapp/pyproject.toml).
+
+For maintainers, the GitHub tag and release flow is documented in [`RELEASE.md`](/C:/Users/kevin/codex/tgrobot/teleapp/RELEASE.md).
+
+Build artifacts:
+
+- `dist/teleapp-<version>.tar.gz`
+- `dist/teleapp-<version>-py3-none-any.whl`
+
+Build from this repo:
+
+Windows:
+
+```powershell
+build_teleapp.bat
+```
+
+Linux/macOS:
+
+```bash
+./build_teleapp.sh
+```
+
+Manual equivalent:
+
+```powershell
+python -m pip install --upgrade build
+python -m build
+```
+
+Install into a new virtual environment from the built wheel:
+
+```powershell
+python -m venv .venv
+.venv\Scripts\pip install .\dist\teleapp-0.1.0-py3-none-any.whl
+```
+
+You can also install directly from the project directory without building a wheel first:
+
+```powershell
+python -m venv .venv
+.venv\Scripts\pip install C:\path\to\teleapp
+```
+
+Install directly from GitHub:
+
+```powershell
+python -m venv .venv
+.venv\Scripts\pip install "git+https://github.com/kevincsl/teleapp.git@main"
+```
+
+Install a specific tag or commit:
+
+```powershell
+.venv\Scripts\pip install "git+https://github.com/kevincsl/teleapp.git@v0.1.0"
+.venv\Scripts\pip install "git+https://github.com/kevincsl/teleapp.git@<commit-sha>"
+```
+
+For a private repository, use SSH instead:
+
+```powershell
+.venv\Scripts\pip install "git+ssh://git@github.com/kevincsl/teleapp.git@main"
+```
+
+After installation, the `teleapp` CLI is available inside that environment:
+
+```powershell
+.venv\Scripts\teleapp init my_teleapp_app
+```
 
 ## Core idea
 
@@ -552,7 +656,10 @@ teleapp/
   .env.example
   bootstrap_teleapp.bat
   bootstrap_teleapp.sh
+  build_teleapp.bat
+  build_teleapp.sh
   PLAN.md
+  RELEASE.md
   pyproject.toml
   README.md
   scripts/

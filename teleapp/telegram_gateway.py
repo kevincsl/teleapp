@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import ApplicationBuilder, CallbackQueryHandler, CommandHandler, ContextTypes, MessageHandler, filters
@@ -62,7 +63,7 @@ class TelegramGateway:
                 | filters.Document.ALL
                 | filters.Sticker.ALL
                 | filters.LOCATION
-                | filters.Venue.ALL
+                | filters.VENUE
                 | filters.VOICE
                 | filters.AUDIO
                 | filters.VIDEO
