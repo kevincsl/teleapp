@@ -23,6 +23,7 @@ from teleapp import (
     VoiceResponse,
     build_runtime_config,
 )
+from teleapp.context import MessageContext
 
 
 class DummyHandler:
@@ -84,6 +85,17 @@ class TeleAppTests(unittest.TestCase):
 
         self.assertIn("hello", app._command_handlers)
         self.assertEqual(app._command_handlers["hello"], hello)
+
+    def test_message_handler_can_classify_unknown_command_text(self) -> None:
+        app = TeleApp(build_runtime_config())
+
+        @app.message
+        async def handle(ctx):
+            return f"command={ctx.command} text={ctx.text}"
+
+        response = app._dispatch_context(MessageContext(chat_id=1, text="payload", command="model"))
+        result = __import__("asyncio").run(response)
+        self.assertEqual(result.text, "command=model text=payload")
 
     def test_route_decorator_registers_predicate_handler(self) -> None:
         app = TeleApp(build_runtime_config())

@@ -11,4 +11,13 @@ def main() -> None:
         target = create_project(sys.argv[2])
         print(f"Created teleapp project at {target}")
         return
-    TeleApp.from_cli().run_polling()
+    app = TeleApp.from_cli()
+    print(
+        "[teleapp] cli launch "
+        f"app={app.config.app_path or '-'} "
+        f"hot_reload={'on' if app.config.hot_reload else 'off'} "
+        f"python={app.config.python_executable}",
+        file=sys.stderr,
+        flush=True,
+    )
+    app.run_polling()

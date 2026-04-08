@@ -9,3 +9,5 @@ build/
 dist/
 .pkgtest-venv/
 .pkgtest-app/
+# CocoIndex Code (ccc)
+/.cocoindex_code/

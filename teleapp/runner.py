@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import subprocess
 import threading
 from pathlib import Path
@@ -29,11 +30,23 @@ class ProcessRunner:
         if self._process is not None and self._process.poll() is None:
             return
 
+        env = os.environ.copy()
+        teleapp_root = str(Path(__file__).resolve().parent.parent)
+        current_pythonpath = env.get("PYTHONPATH", "")
+        if current_pythonpath.strip():
+            env["PYTHONPATH"] = teleapp_root + os.pathsep + current_pythonpath
+        else:
+            env["PYTHONPATH"] = teleapp_root
+        # Force child Python stdio to UTF-8 so JSON payloads keep CJK text intact on Windows.
+        env["PYTHONUTF8"] = "1"
+        env["PYTHONIOENCODING"] = "utf-8"
+
         self._process = subprocess.Popen(
             [self._python_executable, str(self._app_path)],
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
+            env=env,
             text=True,
             encoding="utf-8",
             errors="replace",

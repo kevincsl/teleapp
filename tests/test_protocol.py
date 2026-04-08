@@ -24,6 +24,11 @@ class ProtocolTests(unittest.TestCase):
         self.assertEqual(event.request_id, "req-1")
         self.assertEqual(event.text, "ok")
 
+    def test_encode_input_event_replaces_invalid_surrogates(self) -> None:
+        raw = "ok\ud83d\ud800x"
+        payload = json.loads(encode_input_event(123, raw, request_id="req-2"))
+        self.assertEqual(payload["text"], "ok??x")
+
 
 if __name__ == "__main__":
     unittest.main()

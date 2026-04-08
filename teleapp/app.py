@@ -5,7 +5,9 @@ from collections.abc import Callable
 
 from teleapp.config import TeleappConfig, build_parser, build_runtime_config, load_config
 from teleapp.context import MessageContext
+from teleapp.protocol import AppEvent
 from teleapp.response import ButtonResponse, ErrorResponse, Response, coerce_response
+from teleapp.response import Button
 from teleapp.telegram_gateway import TelegramGateway
 
 
@@ -181,7 +183,19 @@ class TeleApp:
         return handler
 
     @staticmethod
-    def _event_to_response(event) -> Response:
+    def _event_to_response(event: AppEvent) -> Response:
+        if event.type == "buttons":
+            raw_buttons = event.raw.get("buttons") if isinstance(event.raw, dict) else None
+            buttons = []
+            if isinstance(raw_buttons, list):
+                for item in raw_buttons:
+                    if not isinstance(item, dict):
+                        continue
+                    text = str(item.get("text") or "").strip()
+                    data = str(item.get("data") or "").strip()
+                    if text and data:
+                        buttons.append(Button(text=text, data=data))
+            return ButtonResponse(text=event.text, buttons=buttons)
         return Response(text=event.text, event_type=event.type)
 
     async def _run_startup_hooks(self) -> None:

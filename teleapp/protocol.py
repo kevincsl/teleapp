@@ -21,6 +21,16 @@ class AppEvent:
     raw: dict[str, Any] | None = None
 
 
+def _sanitize_surrogates(value: Any) -> Any:
+    if isinstance(value, str):
+        return value.encode("utf-8", errors="replace").decode("utf-8")
+    if isinstance(value, dict):
+        return {key: _sanitize_surrogates(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_sanitize_surrogates(item) for item in value]
+    return value
+
+
 def encode_input_event(chat_id: int, text: str, *, request_id: str, command: str | None = None) -> str:
     payload = {
         "type": "input",
@@ -30,7 +40,7 @@ def encode_input_event(chat_id: int, text: str, *, request_id: str, command: str
     }
     if command:
         payload["command"] = command
-    return json.dumps(payload, ensure_ascii=False)
+    return json.dumps(_sanitize_surrogates(payload), ensure_ascii=False)
 
 
 def decode_output_line(line: str, *, stream: str) -> AppEvent | None:

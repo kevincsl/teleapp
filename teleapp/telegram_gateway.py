@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import sys
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram.error import Conflict
 from telegram.ext import ApplicationBuilder, CallbackQueryHandler, CommandHandler, ContextTypes, MessageHandler, filters
 
 from teleapp.config import TeleappConfig
@@ -31,10 +33,19 @@ MESSAGE_LIMIT = 3900
 
 
 def _clip(text: str) -> str:
-    cleaned = (text or "").strip()
+    cleaned = _safe_text(text).strip()
     if len(cleaned) <= MESSAGE_LIMIT:
         return cleaned
     return cleaned[: MESSAGE_LIMIT - 3] + "..."
+
+
+def _safe_text(text: str | None) -> str:
+    return (text or "").encode("utf-8", errors="replace").decode("utf-8")
+
+
+def _console(message: str) -> None:
+    sys.stderr.write(f"[teleapp] {message}\n")
+    sys.stderr.flush()
 
 
 class TelegramGateway:
@@ -48,12 +59,14 @@ class TelegramGateway:
 
     def build(self):
         app = ApplicationBuilder().token(self._config.telegram_token).build()
+        app.add_error_handler(self._telegram_error_handler)
         app.add_handler(CommandHandler("start", self._start_command))
         app.add_handler(CommandHandler("help", self._help_command))
         app.add_handler(CommandHandler("status", self._status_command))
         app.add_handler(CommandHandler("restart", self._restart_command))
         for name in sorted(self._custom_commands):
             app.add_handler(CommandHandler(name, self._custom_command))
+        app.add_handler(MessageHandler(filters.COMMAND, self._command_input))
         app.add_handler(CallbackQueryHandler(self._callback_query))
         app.add_handler(
             MessageHandler(
@@ -76,6 +89,13 @@ class TelegramGateway:
         app.post_shutdown = self._post_shutdown
         return app
 
+    async def _telegram_error_handler(self, update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
+        err = context.error
+        if isinstance(err, Conflict):
+            _console("telegram conflict detected: another process is using this bot token; stopping")
+            context.application.stop_running()
+            return
+
     @property
     def supervisor(self) -> AppSupervisor:
         return self._supervisor
@@ -89,19 +109,30 @@ class TelegramGateway:
         self._shutdown_hook = shutdown_hook
 
     async def _post_init(self, app) -> None:
+        watched = ", ".join(str(path) for path in self._config.watch_paths or []) or "-"
+        _console(
+            "starting gateway "
+            f"app={self._config.app_path or '-'} "
+            f"hot_reload={'on' if self._config.hot_reload else 'off'} "
+            f"watch=[{watched}]"
+        )
         if self._startup_hook is not None:
             await self._startup_hook()
         await self._supervisor.start()
         self._consumer_task = asyncio.create_task(self._event_consumer(app))
+        _console("gateway ready")
 
     async def _post_shutdown(self, app) -> None:
+        _console("gateway shutting down")
         if self._consumer_task is not None:
             self._consumer_task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
+            with contextlib.suppress(asyncio.CancelledError, Exception):
                 await self._consumer_task
+            self._consumer_task = None
         await self._supervisor.stop()
         if self._shutdown_hook is not None:
             await self._shutdown_hook()
+        _console("gateway stopped")
 
     def _is_allowed(self, update: Update) -> bool:
         user = update.effective_user
@@ -163,6 +194,25 @@ class TelegramGateway:
         payload = self._build_message_context(update)
         await self._supervisor.send_text(chat_id=update.effective_chat.id, text=payload.text)
 
+    async def _command_input(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        if not self._is_allowed(update):
+            return
+        message = update.message
+        if message is None or not message.text:
+            return
+        command_name = _safe_text(message.text.split()[0].lstrip("/").split("@", 1)[0].strip().lower())
+        if not command_name:
+            return
+        payload = ""
+        parts = message.text.split(maxsplit=1)
+        if len(parts) > 1:
+            payload = _safe_text(parts[1])
+        await self._supervisor.send_text(
+            chat_id=update.effective_chat.id,
+            text=payload,
+            command=command_name,
+        )
+
     async def _callback_query(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         if not self._is_allowed(update):
             return
@@ -173,30 +223,17 @@ class TelegramGateway:
         ctx = MessageContext(
             chat_id=update.effective_chat.id,
             text="",
-            callback_query=CallbackQueryInput(id=query.id, data=query.data),
+            callback_query=CallbackQueryInput(id=query.id, data=_safe_text(query.data) if query.data else None),
             raw_update=update,
         )
-        await self._supervisor.send_text(chat_id=update.effective_chat.id, text=ctx.text, command=query.data or "")
-
-    async def _custom_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        if not self._is_allowed(update):
-            return
-        message = update.message
-        if message is None:
-            return
-        command_name = ""
-        if message.text:
-            command_name = message.text.split()[0].lstrip("/").split("@", 1)[0].strip().lower()
-        payload = ""
-        if message.text:
-            parts = message.text.split(maxsplit=1)
-            if len(parts) > 1:
-                payload = parts[1]
         await self._supervisor.send_text(
             chat_id=update.effective_chat.id,
-            text=payload,
-            command=command_name,
+            text=ctx.text,
+            command=_safe_text(query.data) if query.data else "",
         )
+
+    async def _custom_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        await self._command_input(update, context)
 
     async def _event_consumer(self, app) -> None:
         while True:
@@ -204,7 +241,10 @@ class TelegramGateway:
             target_chat_id = event.chat_id or self._config.telegram_chat_id
             if not target_chat_id:
                 continue
-            await self._send_event(app, target_chat_id, event)
+            try:
+                await self._send_event(app, target_chat_id, event)
+            except Exception as exc:
+                _console(f"send event failed: {exc.__class__.__name__}: {exc}")
 
     async def _send_event(self, app, chat_id: int, event: AppEvent) -> None:
         raw = event.raw or {}
@@ -213,28 +253,34 @@ class TelegramGateway:
         if event_type == "photo":
             if raw.get("file_path"):
                 with open(raw["file_path"], "rb") as fh:
-                    await app.bot.send_photo(chat_id=chat_id, photo=fh, caption=raw.get("caption") or None)
+                    caption = _safe_text(raw.get("caption")) if raw.get("caption") else None
+                    await app.bot.send_photo(chat_id=chat_id, photo=fh, caption=caption)
                 return
             if raw.get("file_id"):
-                await app.bot.send_photo(chat_id=chat_id, photo=raw["file_id"], caption=raw.get("caption") or None)
+                caption = _safe_text(raw.get("caption")) if raw.get("caption") else None
+                await app.bot.send_photo(chat_id=chat_id, photo=raw["file_id"], caption=caption)
                 return
 
         if event_type == "animation":
             if raw.get("file_path"):
                 with open(raw["file_path"], "rb") as fh:
-                    await app.bot.send_animation(chat_id=chat_id, animation=fh, caption=raw.get("caption") or None)
+                    caption = _safe_text(raw.get("caption")) if raw.get("caption") else None
+                    await app.bot.send_animation(chat_id=chat_id, animation=fh, caption=caption)
                 return
             if raw.get("file_id"):
-                await app.bot.send_animation(chat_id=chat_id, animation=raw["file_id"], caption=raw.get("caption") or None)
+                caption = _safe_text(raw.get("caption")) if raw.get("caption") else None
+                await app.bot.send_animation(chat_id=chat_id, animation=raw["file_id"], caption=caption)
                 return
 
         if event_type == "document":
             if raw.get("file_path"):
                 with open(raw["file_path"], "rb") as fh:
-                    await app.bot.send_document(chat_id=chat_id, document=fh, caption=raw.get("caption") or None)
+                    caption = _safe_text(raw.get("caption")) if raw.get("caption") else None
+                    await app.bot.send_document(chat_id=chat_id, document=fh, caption=caption)
                 return
             if raw.get("file_id"):
-                await app.bot.send_document(chat_id=chat_id, document=raw["file_id"], caption=raw.get("caption") or None)
+                caption = _safe_text(raw.get("caption")) if raw.get("caption") else None
+                await app.bot.send_document(chat_id=chat_id, document=raw["file_id"], caption=caption)
                 return
 
         if event_type == "sticker" and raw.get("sticker"):
@@ -264,28 +310,34 @@ class TelegramGateway:
         if event_type == "audio":
             if raw.get("file_path"):
                 with open(raw["file_path"], "rb") as fh:
-                    await app.bot.send_audio(chat_id=chat_id, audio=fh, caption=raw.get("caption") or None)
+                    caption = _safe_text(raw.get("caption")) if raw.get("caption") else None
+                    await app.bot.send_audio(chat_id=chat_id, audio=fh, caption=caption)
                 return
             if raw.get("file_id"):
-                await app.bot.send_audio(chat_id=chat_id, audio=raw["file_id"], caption=raw.get("caption") or None)
+                caption = _safe_text(raw.get("caption")) if raw.get("caption") else None
+                await app.bot.send_audio(chat_id=chat_id, audio=raw["file_id"], caption=caption)
                 return
 
         if event_type == "voice":
             if raw.get("file_path"):
                 with open(raw["file_path"], "rb") as fh:
-                    await app.bot.send_voice(chat_id=chat_id, voice=fh, caption=raw.get("caption") or None)
+                    caption = _safe_text(raw.get("caption")) if raw.get("caption") else None
+                    await app.bot.send_voice(chat_id=chat_id, voice=fh, caption=caption)
                 return
             if raw.get("file_id"):
-                await app.bot.send_voice(chat_id=chat_id, voice=raw["file_id"], caption=raw.get("caption") or None)
+                caption = _safe_text(raw.get("caption")) if raw.get("caption") else None
+                await app.bot.send_voice(chat_id=chat_id, voice=raw["file_id"], caption=caption)
                 return
 
         if event_type == "video":
             if raw.get("file_path"):
                 with open(raw["file_path"], "rb") as fh:
-                    await app.bot.send_video(chat_id=chat_id, video=fh, caption=raw.get("caption") or None)
+                    caption = _safe_text(raw.get("caption")) if raw.get("caption") else None
+                    await app.bot.send_video(chat_id=chat_id, video=fh, caption=caption)
                 return
             if raw.get("file_id"):
-                await app.bot.send_video(chat_id=chat_id, video=raw["file_id"], caption=raw.get("caption") or None)
+                caption = _safe_text(raw.get("caption")) if raw.get("caption") else None
+                await app.bot.send_video(chat_id=chat_id, video=raw["file_id"], caption=caption)
                 return
 
         if event_type == "contact" and raw.get("phone_number") and raw.get("first_name"):
@@ -300,8 +352,8 @@ class TelegramGateway:
         if event_type == "poll" and raw.get("question") and raw.get("options"):
             await app.bot.send_poll(
                 chat_id=chat_id,
-                question=raw["question"],
-                options=raw["options"],
+                question=_safe_text(str(raw["question"])),
+                options=[_safe_text(str(item)) for item in raw["options"]],
                 allows_multiple_answers=bool(raw.get("allows_multiple_answers")),
             )
             return
@@ -309,7 +361,7 @@ class TelegramGateway:
         if event_type == "buttons":
             buttons = raw.get("buttons") or []
             keyboard = InlineKeyboardMarkup(
-                [[InlineKeyboardButton(button["text"], callback_data=button["data"])] for button in buttons]
+                [[InlineKeyboardButton(_safe_text(button["text"]), callback_data=button["data"])] for button in buttons]
             )
             await app.bot.send_message(chat_id=chat_id, text=_clip(event.text), reply_markup=keyboard)
             return
@@ -411,24 +463,24 @@ class TelegramGateway:
         contact = None
         if message.contact:
             contact = ContactInput(
-                phone_number=message.contact.phone_number,
-                first_name=message.contact.first_name,
-                last_name=message.contact.last_name,
+                phone_number=_safe_text(message.contact.phone_number),
+                first_name=_safe_text(message.contact.first_name),
+                last_name=_safe_text(message.contact.last_name) if message.contact.last_name else None,
                 user_id=message.contact.user_id,
             )
 
         poll = None
         if message.poll:
             poll = PollInput(
-                question=message.poll.question,
-                options=[option.text for option in message.poll.options],
+                question=_safe_text(message.poll.question),
+                options=[_safe_text(option.text) for option in message.poll.options],
                 allows_multiple_answers=message.poll.allows_multiple_answers,
             )
 
         return MessageContext(
             chat_id=update.effective_chat.id,
-            text=message.text or message.caption or "",
-            caption=message.caption,
+            text=_safe_text(message.text or message.caption or ""),
+            caption=_safe_text(message.caption) if message.caption else None,
             animation=animation,
             photos=photos,
             document=document,

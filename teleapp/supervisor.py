@@ -5,6 +5,7 @@ from collections import deque
 from dataclasses import dataclass
 from datetime import datetime
 import inspect
+import sys
 
 from teleapp.config import TeleappConfig
 from teleapp.context import MessageContext
@@ -23,6 +24,15 @@ class QueuedRequest:
     request_id: str
     queued_at: datetime
     command: str | None = None
+
+
+def _console(message: str) -> None:
+    sys.stderr.write(f"[teleapp] {message}\n")
+    sys.stderr.flush()
+
+
+def _safe_text(text: str | None) -> str:
+    return (text or "").encode("utf-8", errors="replace").decode("utf-8")
 
 
 class AppSupervisor:
@@ -55,10 +65,13 @@ class AppSupervisor:
         self._callable_handler = None
 
     async def start(self) -> None:
+        if self._state.running:
+            return
         if self._uses_inprocess_handler():
             self._state.running = True
             self._state.pid = None
             self._state.started_at = datetime.now()
+            _console("supervisor started in-process mode")
             return
 
         loop = asyncio.get_running_loop()
@@ -73,6 +86,7 @@ class AppSupervisor:
         self._state.running = True
         self._state.pid = self._runner.process.pid if self._runner.process else None
         self._state.started_at = datetime.now()
+        _console(f"hosted app started pid={self._state.pid or '-'}")
 
         if self._config.hot_reload and self._watcher_task is None:
             watcher = PollingHotReload(
@@ -83,6 +97,7 @@ class AppSupervisor:
             )
             self._watcher_task = asyncio.create_task(watcher.run())
             self._watcher = watcher
+            _console("hot reload watcher started")
 
     async def stop(self) -> None:
         if self._watcher_task is not None:
@@ -96,15 +111,18 @@ class AppSupervisor:
             pid = await asyncio.to_thread(self._runner.stop)
             if pid is not None:
                 self._expected_exit_pids.add(pid)
+                _console(f"hosted app stop requested pid={pid}")
 
         self._state.running = False
         self._state.pid = None
 
     async def restart(self, reason: str = "manual restart") -> None:
+        _console(f"restart requested reason={reason}")
         async with self._reload_lock:
             if self._state.busy:
                 self._pending_reload_reason = reason
                 self._state.last_restart_reason = f"queued: {reason}"
+                _console("restart queued because supervisor is busy")
                 return
             if self._uses_inprocess_handler():
                 self._state.running = True
@@ -112,6 +130,7 @@ class AppSupervisor:
                 self._state.last_restart_at = datetime.now()
                 self._state.last_restart_reason = reason
                 self._state.restart_count += 1
+                _console("in-process restart applied")
                 return
             if self._runner is not None:
                 current_pid = self._runner.process.pid if self._runner.process is not None else None
@@ -124,6 +143,7 @@ class AppSupervisor:
                 self._state.last_restart_at = datetime.now()
                 self._state.last_restart_reason = reason
                 self._state.restart_count += 1
+                _console(f"hosted app restarted old_pid={current_pid or '-'} new_pid={self._state.pid or '-'}")
                 await self._dispatch_next_request()
 
     async def send_text(self, *, chat_id: int, text: str, command: str | None = None) -> None:
@@ -133,10 +153,10 @@ class AppSupervisor:
         session = self._get_session(chat_id)
         queued = QueuedRequest(
             chat_id=chat_id,
-            text=text,
+            text=_safe_text(text),
             request_id=request_id,
             queued_at=datetime.now(),
-            command=command,
+            command=_safe_text(command) if command else None,
         )
         queue = self._chat_queues.setdefault(chat_id, deque())
         was_empty = not queue
@@ -160,6 +180,8 @@ class AppSupervisor:
 
             if event.type == "error":
                 self._state.last_error = event.text
+            if event.stream == "stderr" and event.text:
+                _console(f"hosted stderr: {event.text}")
             if event.chat_id is None:
                 event.chat_id = self._active_request.chat_id if self._active_request is not None else self._state.last_chat_id
             if event.text.startswith("Hosted app exited with code"):
@@ -266,6 +288,7 @@ class AppSupervisor:
         await self.restart(reason)
 
     async def _restart_after_crash(self, return_code: int) -> None:
+        _console(f"hosted app crashed return_code={return_code}; scheduling auto-restart")
         if self._config.restart_backoff_seconds > 0:
             await asyncio.sleep(self._config.restart_backoff_seconds)
         await self.restart(f"crash auto-restart (code {return_code})")
