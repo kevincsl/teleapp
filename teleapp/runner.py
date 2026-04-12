@@ -94,12 +94,20 @@ class ProcessRunner:
         self._close_streams(process)
         return process.pid
 
-    def send_input(self, *, chat_id: int, text: str, request_id: str, command: str | None = None) -> None:
+    def send_input(
+        self,
+        *,
+        chat_id: int,
+        text: str,
+        request_id: str,
+        command: str | None = None,
+        raw: dict | None = None,
+    ) -> None:
         process = self._process
         if process is None or process.poll() is not None or process.stdin is None:
             raise RuntimeError("Hosted app is not running.")
 
-        line = encode_input_event(chat_id, text, request_id=request_id, command=command)
+        line = encode_input_event(chat_id, text, request_id=request_id, command=command, raw=raw)
         with self._stdin_lock:
             process.stdin.write(line + "\n")
             process.stdin.flush()

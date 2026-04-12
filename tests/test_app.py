@@ -24,6 +24,7 @@ from teleapp import (
     build_runtime_config,
 )
 from teleapp.context import MessageContext
+from teleapp.protocol import AppEvent
 
 
 class DummyHandler:
@@ -168,6 +169,15 @@ class TeleAppTests(unittest.TestCase):
         self.assertEqual(ContactResponse(text="", phone_number="123", first_name="A").event_type, "contact")
         self.assertEqual(PollResponse(text="", question="Q", options=["A", "B"]).event_type, "poll")
         self.assertEqual(VenueResponse(text="", latitude=1.0, longitude=2.0, title="T", address="A").event_type, "venue")
+
+    def test_event_to_response_preserves_raw_metadata(self) -> None:
+        app = TeleApp(build_runtime_config())
+        ctx = MessageContext(chat_id=1, text="x")
+        event = AppEvent(type="status", text="running", raw={"status_key": "heartbeat", "replace": True})
+        response = app._event_to_response(event)
+        roundtrip = response.to_event(ctx)
+        self.assertEqual(roundtrip.raw["status_key"], "heartbeat")
+        self.assertTrue(roundtrip.raw["replace"])
 
 
 if __name__ == "__main__":

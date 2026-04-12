@@ -24,6 +24,7 @@ class QueuedRequest:
     request_id: str
     queued_at: datetime
     command: str | None = None
+    raw: dict | None = None
 
 
 def _console(message: str) -> None:
@@ -146,7 +147,7 @@ class AppSupervisor:
                 _console(f"hosted app restarted old_pid={current_pid or '-'} new_pid={self._state.pid or '-'}")
                 await self._dispatch_next_request()
 
-    async def send_text(self, *, chat_id: int, text: str, command: str | None = None) -> None:
+    async def send_text(self, *, chat_id: int, text: str, command: str | None = None, raw: dict | None = None) -> None:
         await self.start()
         self._next_request_number += 1
         request_id = f"{chat_id}-{self._next_request_number}"
@@ -157,6 +158,7 @@ class AppSupervisor:
             request_id=request_id,
             queued_at=datetime.now(),
             command=_safe_text(command) if command else None,
+            raw=raw,
         )
         queue = self._chat_queues.setdefault(chat_id, deque())
         was_empty = not queue
@@ -249,6 +251,7 @@ class AppSupervisor:
                     text=request.text,
                     request_id=request.request_id,
                     command=request.command,
+                    raw=request.raw,
                 )
             except Exception:
                 self._clear_active_request()
@@ -270,7 +273,23 @@ class AppSupervisor:
             self._refresh_busy_state()
             return
 
-        if event.type not in {"output", "error", "status"}:
+        if event.type not in {
+            "output",
+            "error",
+            "status",
+            "buttons",
+            "photo",
+            "animation",
+            "document",
+            "sticker",
+            "location",
+            "venue",
+            "audio",
+            "voice",
+            "video",
+            "contact",
+            "poll",
+        }:
             self._refresh_busy_state()
             return
 

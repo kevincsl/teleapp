@@ -25,6 +25,10 @@ class DummyBot:
 
     async def send_message(self, **kwargs):
         self.calls.append(("message", kwargs))
+        return SimpleNamespace(message_id=999)
+
+    async def edit_message_text(self, **kwargs):
+        self.calls.append(("edit_message_text", kwargs))
 
     async def send_photo(self, **kwargs):
         self.calls.append(("photo", kwargs))
@@ -224,6 +228,34 @@ class GatewayTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(app.bot.calls[7][0], "video")
         self.assertEqual(app.bot.calls[8][0], "contact")
         self.assertEqual(app.bot.calls[9][0], "poll")
+
+    async def test_status_event_reuses_existing_message_when_replace_is_enabled(self) -> None:
+        gateway = TelegramGateway(self.config)
+        app = SimpleNamespace(bot=DummyBot())
+        gateway._status_messages[(1, "heartbeat")] = 321
+
+        await gateway._send_event(
+            app,
+            1,
+            AppEvent(type="status", text="updated", raw={"status_key": "heartbeat", "replace": True}),
+        )
+
+        self.assertEqual(app.bot.calls[0][0], "edit_message_text")
+        self.assertEqual(app.bot.calls[0][1]["chat_id"], 1)
+        self.assertEqual(app.bot.calls[0][1]["message_id"], 321)
+
+    async def test_raw_buttons_force_keyboard_even_if_type_is_output(self) -> None:
+        gateway = TelegramGateway(self.config)
+        app = SimpleNamespace(bot=DummyBot())
+
+        await gateway._send_event(
+            app,
+            1,
+            AppEvent(type="output", text="menu", raw={"buttons": [{"text": "A", "data": "a"}]}),
+        )
+
+        self.assertEqual(app.bot.calls[0][0], "message")
+        self.assertIn("reply_markup", app.bot.calls[0][1])
 
 
 if __name__ == "__main__":

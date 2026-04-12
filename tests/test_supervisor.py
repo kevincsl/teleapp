@@ -101,6 +101,41 @@ class SupervisorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(event.text, "cmd=hello text=world")
         await app.supervisor.stop()
 
+    async def test_send_text_preserves_raw_payload_in_request(self) -> None:
+        supervisor = AppSupervisor(self.config)
+        await supervisor.start()
+        await supervisor.send_text(
+            chat_id=99,
+            text="caption",
+            raw={"document": {"file_id": "f1", "file_unique_id": "u1", "file_name": "a.pdf"}},
+        )
+        active = supervisor._active_request
+        self.assertIsNotNone(active)
+        assert active is not None
+        self.assertIsInstance(active.raw, dict)
+        self.assertEqual(active.raw["document"]["file_id"], "f1")
+        await supervisor.stop()
+
+    async def test_buttons_event_completes_active_request(self) -> None:
+        supervisor = AppSupervisor(self.config)
+        await supervisor.start()
+        supervisor._active_request = type(
+            "Req",
+            (),
+            {"chat_id": 1, "request_id": "1-1", "text": "", "command": "menu", "raw": None},
+        )()
+        await supervisor._complete_request(
+            AppEvent(
+                type="buttons",
+                text="pick",
+                chat_id=1,
+                request_id="1-1",
+                raw={"buttons": [{"text": "A", "data": "a"}]},
+            )
+        )
+        self.assertIsNone(supervisor._active_request)
+        await supervisor.stop()
+
     async def test_inprocess_route_handler_matches_before_default_handler(self) -> None:
         app = TeleApp()
 

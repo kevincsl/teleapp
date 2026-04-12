@@ -2,7 +2,10 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import os
 import sys
+import tempfile
+from pathlib import Path
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.error import Conflict
@@ -56,6 +59,7 @@ class TelegramGateway:
         self._custom_commands: set[str] = set()
         self._startup_hook = None
         self._shutdown_hook = None
+        self._status_messages: dict[tuple[int, str], int] = {}
 
     def build(self):
         app = ApplicationBuilder().token(self._config.telegram_token).build()
@@ -192,7 +196,19 @@ class TelegramGateway:
         if message is None:
             return
         payload = self._build_message_context(update)
-        await self._supervisor.send_text(chat_id=update.effective_chat.id, text=payload.text)
+        raw: dict = {}
+        if payload.caption is not None:
+            raw["caption"] = payload.caption
+        if payload.document is not None:
+            local_path = await self._download_document_to_temp(context, payload.document.file_id, payload.document.file_name)
+            raw["document"] = {
+                "file_id": payload.document.file_id,
+                "file_unique_id": payload.document.file_unique_id,
+                "file_name": payload.document.file_name,
+                "mime_type": payload.document.mime_type,
+                "local_path": local_path,
+            }
+        await self._supervisor.send_text(chat_id=update.effective_chat.id, text=payload.text, raw=raw or None)
 
     async def _command_input(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         if not self._is_allowed(update):
@@ -249,6 +265,34 @@ class TelegramGateway:
     async def _send_event(self, app, chat_id: int, event: AppEvent) -> None:
         raw = event.raw or {}
         event_type = event.type
+        buttons = raw.get("buttons") or []
+
+        if event_type == "status":
+            status_key = str(raw.get("status_key") or "").strip()
+            replace = bool(raw.get("replace")) if status_key else False
+            if status_key and replace:
+                cache_key = (chat_id, status_key)
+                message_id = self._status_messages.get(cache_key)
+                if message_id is not None:
+                    try:
+                        _console(f"status edit chat={chat_id} key={status_key} message_id={message_id}")
+                        await app.bot.edit_message_text(chat_id=chat_id, message_id=message_id, text=_clip(event.text))
+                        return
+                    except Exception:
+                        _console(f"status edit failed chat={chat_id} key={status_key}; falling back to send")
+                        self._status_messages.pop(cache_key, None)
+                _console(f"status send chat={chat_id} key={status_key}")
+                sent = await app.bot.send_message(chat_id=chat_id, text=_clip(event.text))
+                if sent is not None and getattr(sent, "message_id", None) is not None:
+                    self._status_messages[cache_key] = sent.message_id
+                return
+
+        if buttons:
+            keyboard = InlineKeyboardMarkup(
+                [[InlineKeyboardButton(_safe_text(button["text"]), callback_data=button["data"])] for button in buttons]
+            )
+            await app.bot.send_message(chat_id=chat_id, text=_clip(event.text), reply_markup=keyboard)
+            return
 
         if event_type == "photo":
             if raw.get("file_path"):
@@ -356,14 +400,6 @@ class TelegramGateway:
                 options=[_safe_text(str(item)) for item in raw["options"]],
                 allows_multiple_answers=bool(raw.get("allows_multiple_answers")),
             )
-            return
-
-        if event_type == "buttons":
-            buttons = raw.get("buttons") or []
-            keyboard = InlineKeyboardMarkup(
-                [[InlineKeyboardButton(_safe_text(button["text"]), callback_data=button["data"])] for button in buttons]
-            )
-            await app.bot.send_message(chat_id=chat_id, text=_clip(event.text), reply_markup=keyboard)
             return
 
         await app.bot.send_message(chat_id=chat_id, text=_clip(self._render_event(event)))
@@ -504,6 +540,25 @@ class TelegramGateway:
         if event.type == "error":
             return f"[error] {event.text}"
         return f"[{event.type}] {event.text}"
+
+    async def _download_document_to_temp(self, context: ContextTypes.DEFAULT_TYPE, file_id: str, file_name: str | None) -> str | None:
+        try:
+            tg_file = await context.bot.get_file(file_id)
+        except Exception as exc:
+            _console(f"document fetch failed: {exc.__class__.__name__}: {exc}")
+            return None
+
+        suffix = Path(file_name or "").suffix if file_name else ""
+        handle = tempfile.NamedTemporaryFile(prefix="teleapp-doc-", suffix=suffix, delete=False)
+        handle.close()
+        try:
+            await tg_file.download_to_drive(custom_path=handle.name)
+            return handle.name
+        except Exception as exc:
+            with contextlib.suppress(OSError):
+                os.unlink(handle.name)
+            _console(f"document download failed: {exc.__class__.__name__}: {exc}")
+            return None
 
 
 import contextlib

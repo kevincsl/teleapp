@@ -31,7 +31,14 @@ def _sanitize_surrogates(value: Any) -> Any:
     return value
 
 
-def encode_input_event(chat_id: int, text: str, *, request_id: str, command: str | None = None) -> str:
+def encode_input_event(
+    chat_id: int,
+    text: str,
+    *,
+    request_id: str,
+    command: str | None = None,
+    raw: dict[str, Any] | None = None,
+) -> str:
     payload = {
         "type": "input",
         "chat_id": chat_id,
@@ -40,6 +47,8 @@ def encode_input_event(chat_id: int, text: str, *, request_id: str, command: str
     }
     if command:
         payload["command"] = command
+    if raw:
+        payload["raw"] = raw
     return json.dumps(_sanitize_surrogates(payload), ensure_ascii=False)
 
 
@@ -87,11 +96,15 @@ def decode_output_line(line: str, *, stream: str) -> AppEvent | None:
     if isinstance(raw_command, str) and raw_command.strip():
         command = raw_command.strip()
 
+    raw_payload = payload.get("raw")
+    if not isinstance(raw_payload, dict):
+        raw_payload = payload
+
     return AppEvent(
         type=event_type,
         text=text,
         chat_id=chat_id,
         request_id=request_id,
-        raw={**payload, "command": command} if command else payload,
+        raw={**raw_payload, "command": command} if command else raw_payload,
         stream=stream,
     )
