@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import unittest
 from argparse import Namespace
+from datetime import datetime
 from pathlib import Path
 
 from teleapp import StatusResponse, TeleApp
@@ -122,7 +123,16 @@ class SupervisorTests(unittest.IsolatedAsyncioTestCase):
         supervisor._active_request = type(
             "Req",
             (),
-            {"chat_id": 1, "request_id": "1-1", "text": "", "command": "menu", "raw": None},
+            {
+                "chat_id": 1,
+                "request_id": "1-1",
+                "text": "",
+                "command": "menu",
+                "raw": None,
+                "queued_at": datetime.now(),
+                "dispatched_at": datetime.now(),
+                "first_event_at": None,
+            },
         )()
         await supervisor._complete_request(
             AppEvent(
