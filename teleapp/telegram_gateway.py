@@ -2,13 +2,19 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-import os
+import re
 import sys
-import tempfile
-from pathlib import Path
 
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
-from telegram.error import Conflict
+from telegram import (
+    BotCommand,
+    BotCommandScopeAllPrivateChats,
+    BotCommandScopeChat,
+    BotCommandScopeDefault,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    Update,
+)
+from telegram.error import BadRequest, Conflict, RetryAfter
 from telegram.ext import ApplicationBuilder, CallbackQueryHandler, CommandHandler, ContextTypes, MessageHandler, filters
 
 from teleapp.config import TeleappConfig
@@ -29,10 +35,28 @@ from teleapp.context import (
 )
 from teleapp.protocol import AppEvent
 from teleapp.response import ButtonResponse
+from teleapp.state import ChatSessionState
 from teleapp.supervisor import AppSupervisor
 
 
 MESSAGE_LIMIT = 3900
+_RETRY_IN_SECONDS_RE = re.compile(r"retry(?:\s+in)?\s+(\d+(?:\.\d+)?)\s*seconds?", re.IGNORECASE)
+_FIXED_MENU_COMMANDS: tuple[str, ...] = ("start", "help", "status", "restart", "menu", "brain", "schedules", "panic", "reset")
+_MENU_LANGUAGE_CODES: tuple[str, ...] = (
+    "zh",
+    "en",
+)
+_MENU_COMMAND_DESCRIPTIONS: dict[str, str] = {
+    "start": "Show start help",
+    "help": "Show help",
+    "status": "Show runtime status",
+    "restart": "Restart hosted app",
+    "menu": "Show menu",
+    "brain": "Open brain menu",
+    "schedules": "Show schedules",
+    "panic": "Emergency cleanup",
+    "reset": "Reset thread state",
+}
 
 
 def _clip(text: str) -> str:
@@ -51,6 +75,37 @@ def _console(message: str) -> None:
     sys.stderr.flush()
 
 
+def _retry_after_seconds(exc: BaseException) -> float:
+    raw_value = getattr(exc, "retry_after", None)
+    if isinstance(raw_value, (int, float)):
+        return max(0.0, float(raw_value))
+    if raw_value is not None:
+        total_seconds = getattr(raw_value, "total_seconds", None)
+        if callable(total_seconds):
+            with contextlib.suppress(Exception):
+                return max(0.0, float(total_seconds()))
+        with contextlib.suppress(Exception):
+            return max(0.0, float(raw_value))
+
+    match = _RETRY_IN_SECONDS_RE.search(_safe_text(str(exc)))
+    if not match:
+        return 0.0
+    with contextlib.suppress(ValueError):
+        return max(0.0, float(match.group(1)))
+    return 0.0
+
+
+def _is_retry_after_error(exc: BaseException) -> bool:
+    if isinstance(exc, RetryAfter):
+        return True
+    if exc.__class__.__name__ == "RetryAfter":
+        return True
+    if hasattr(exc, "retry_after"):
+        return True
+    message = _safe_text(str(exc)).lower()
+    return "flood control" in message and "retry" in message
+
+
 class TelegramGateway:
     def __init__(self, config: TeleappConfig) -> None:
         self._config = config
@@ -59,7 +114,6 @@ class TelegramGateway:
         self._custom_commands: set[str] = set()
         self._startup_hook = None
         self._shutdown_hook = None
-        self._status_messages: dict[tuple[int, str], int] = {}
 
     def build(self):
         app = ApplicationBuilder().token(self._config.telegram_token).build()
@@ -112,6 +166,35 @@ class TelegramGateway:
         self._startup_hook = startup_hook
         self._shutdown_hook = shutdown_hook
 
+    def _build_command_menu(self) -> list[BotCommand]:
+        commands: list[BotCommand] = []
+        fixed = set(_FIXED_MENU_COMMANDS)
+        for name in _FIXED_MENU_COMMANDS:
+            commands.append(BotCommand(name, _MENU_COMMAND_DESCRIPTIONS.get(name, name)))
+        for name in sorted(self._custom_commands):
+            if name in fixed:
+                continue
+            commands.append(BotCommand(name, f"/{name}"))
+        return commands
+
+    async def _sync_command_menu(self, app) -> None:
+        commands = self._build_command_menu()
+        scopes = [BotCommandScopeDefault(), BotCommandScopeAllPrivateChats()]
+        scoped_chat_id = self._config.telegram_chat_id or self._config.allowed_user_id
+        if scoped_chat_id:
+            scopes.append(BotCommandScopeChat(chat_id=int(scoped_chat_id)))
+
+        for scope in scopes:
+            with contextlib.suppress(BadRequest):
+                await app.bot.delete_my_commands(scope=scope)
+            for language_code in _MENU_LANGUAGE_CODES:
+                with contextlib.suppress(BadRequest):
+                    await app.bot.delete_my_commands(scope=scope, language_code=language_code)
+            await app.bot.set_my_commands(commands=commands, scope=scope)
+            for language_code in _MENU_LANGUAGE_CODES:
+                with contextlib.suppress(BadRequest):
+                    await app.bot.set_my_commands(commands=commands, scope=scope, language_code=language_code)
+
     async def _post_init(self, app) -> None:
         watched = ", ".join(str(path) for path in self._config.watch_paths or []) or "-"
         _console(
@@ -124,6 +207,10 @@ class TelegramGateway:
             await self._startup_hook()
         await self._supervisor.start()
         self._consumer_task = asyncio.create_task(self._event_consumer(app))
+        try:
+            await self._sync_command_menu(app)
+        except Exception as exc:
+            _console(f"set command menu failed: {exc.__class__.__name__}: {exc}")
         _console("gateway ready")
 
     async def _post_shutdown(self, app) -> None:
@@ -174,6 +261,9 @@ class TelegramGateway:
             f"active_chat_id: {state.active_chat_id or '-'}",
             f"active_request_id: {state.active_request_id or '-'}",
             f"queued_requests: {state.total_queued_requests}",
+            f"last_exit_code: {state.last_exit_code if state.last_exit_code is not None else '-'}",
+            f"restart_count: {state.restart_count}",
+            f"last_restart_at: {state.last_restart_at.isoformat(timespec='seconds') if state.last_restart_at else '-'}",
             f"last_restart_reason: {state.last_restart_reason or '-'}",
             f"last_error: {state.last_error or '-'}",
         ]
@@ -181,6 +271,17 @@ class TelegramGateway:
             lines.append(
                 f"chat {session.chat_id}: queued={session.queued_requests} active={session.active_request_id or '-'}"
             )
+            timing = session.last_timing or {}
+            if timing:
+                lines.append(
+                    "  "
+                    + "last_timing: "
+                    + f"request_id={timing.get('request_id') or '-'} "
+                    + f"queued_ms={timing.get('queued_ms') or 0} "
+                    + f"first_event_ms={timing.get('first_event_ms') or 0} "
+                    + f"total_ms={timing.get('total_ms') or 0} "
+                    + f"event={timing.get('event_type') or '-'}"
+                )
         await update.message.reply_text(_clip("\n".join(lines)))
 
     async def _restart_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -196,19 +297,7 @@ class TelegramGateway:
         if message is None:
             return
         payload = self._build_message_context(update)
-        raw: dict = {}
-        if payload.caption is not None:
-            raw["caption"] = payload.caption
-        if payload.document is not None:
-            local_path = await self._download_document_to_temp(context, payload.document.file_id, payload.document.file_name)
-            raw["document"] = {
-                "file_id": payload.document.file_id,
-                "file_unique_id": payload.document.file_unique_id,
-                "file_name": payload.document.file_name,
-                "mime_type": payload.document.mime_type,
-                "local_path": local_path,
-            }
-        await self._supervisor.send_text(chat_id=update.effective_chat.id, text=payload.text, raw=raw or None)
+        await self._supervisor.send_text(chat_id=update.effective_chat.id, text=payload.text)
 
     async def _command_input(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         if not self._is_allowed(update):
@@ -260,38 +349,36 @@ class TelegramGateway:
             try:
                 await self._send_event(app, target_chat_id, event)
             except Exception as exc:
+                if _is_retry_after_error(exc):
+                    raw = event.raw or {}
+                    session = self._supervisor.state.chat_sessions.setdefault(
+                        target_chat_id,
+                        ChatSessionState(chat_id=target_chat_id),
+                    )
+                    retry_seconds = _retry_after_seconds(exc)
+                    if retry_seconds <= 0:
+                        retry_seconds = 1.0
+                    if event.type == "status":
+                        now = asyncio.get_running_loop().time()
+                        next_allowed_at = now + retry_seconds
+                        if next_allowed_at > session.status_rate_limited_until:
+                            session.status_rate_limited_until = next_allowed_at
+                    _console(
+                        "send event rate-limited: "
+                        f"chat={target_chat_id} "
+                        f"key={_safe_text(str(raw.get('status_key') or '-'))} "
+                        f"retry_after={int(retry_seconds)}s"
+                    )
+                    continue
                 _console(f"send event failed: {exc.__class__.__name__}: {exc}")
 
     async def _send_event(self, app, chat_id: int, event: AppEvent) -> None:
         raw = event.raw or {}
         event_type = event.type
-        buttons = raw.get("buttons") or []
-
-        if event_type == "status":
-            status_key = str(raw.get("status_key") or "").strip()
-            replace = bool(raw.get("replace")) if status_key else False
-            if status_key and replace:
-                cache_key = (chat_id, status_key)
-                message_id = self._status_messages.get(cache_key)
-                if message_id is not None:
-                    try:
-                        _console(f"status edit chat={chat_id} key={status_key} message_id={message_id}")
-                        await app.bot.edit_message_text(chat_id=chat_id, message_id=message_id, text=_clip(event.text))
-                        return
-                    except Exception:
-                        _console(f"status edit failed chat={chat_id} key={status_key}; falling back to send")
-                        self._status_messages.pop(cache_key, None)
-                _console(f"status send chat={chat_id} key={status_key}")
-                sent = await app.bot.send_message(chat_id=chat_id, text=_clip(event.text))
-                if sent is not None and getattr(sent, "message_id", None) is not None:
-                    self._status_messages[cache_key] = sent.message_id
-                return
-
-        if buttons:
-            keyboard = InlineKeyboardMarkup(
-                [[InlineKeyboardButton(_safe_text(button["text"]), callback_data=button["data"])] for button in buttons]
-            )
-            await app.bot.send_message(chat_id=chat_id, text=_clip(event.text), reply_markup=keyboard)
+        session = self._supervisor.state.chat_sessions.setdefault(chat_id, ChatSessionState(chat_id=chat_id))
+        status_key = _safe_text(str(raw.get("status_key") or "")).strip()
+        replace = bool(raw.get("replace"))
+        if event_type == "status" and session.status_rate_limited_until > asyncio.get_running_loop().time():
             return
 
         if event_type == "photo":
@@ -402,7 +489,34 @@ class TelegramGateway:
             )
             return
 
-        await app.bot.send_message(chat_id=chat_id, text=_clip(self._render_event(event)))
+        if event_type == "buttons":
+            buttons = raw.get("buttons") or []
+            keyboard = InlineKeyboardMarkup(
+                [[InlineKeyboardButton(_safe_text(button["text"]), callback_data=button["data"])] for button in buttons]
+            )
+            message = await app.bot.send_message(chat_id=chat_id, text=_clip(event.text), reply_markup=keyboard)
+            if status_key and hasattr(message, "message_id"):
+                session.status_messages[status_key] = int(message.message_id)
+            return
+
+        text = _clip(self._render_event(event))
+        if replace and status_key:
+            message_id = session.status_messages.get(status_key)
+            if message_id:
+                try:
+                    await app.bot.edit_message_text(chat_id=chat_id, message_id=message_id, text=text)
+                    return
+                except BadRequest as exc:
+                    detail = str(exc).lower()
+                    if "message is not modified" in detail:
+                        return
+                    if "message to edit not found" not in detail:
+                        raise
+                    session.status_messages.pop(status_key, None)
+
+        message = await app.bot.send_message(chat_id=chat_id, text=text)
+        if status_key and hasattr(message, "message_id"):
+            session.status_messages[status_key] = int(message.message_id)
 
     @staticmethod
     def _build_message_context(update: Update) -> MessageContext:
@@ -536,29 +650,10 @@ class TelegramGateway:
         if event.type == "output":
             return event.text
         if event.type == "status":
-            return f"[status] {event.text}"
+            return event.text
         if event.type == "error":
             return f"[error] {event.text}"
         return f"[{event.type}] {event.text}"
-
-    async def _download_document_to_temp(self, context: ContextTypes.DEFAULT_TYPE, file_id: str, file_name: str | None) -> str | None:
-        try:
-            tg_file = await context.bot.get_file(file_id)
-        except Exception as exc:
-            _console(f"document fetch failed: {exc.__class__.__name__}: {exc}")
-            return None
-
-        suffix = Path(file_name or "").suffix if file_name else ""
-        handle = tempfile.NamedTemporaryFile(prefix="teleapp-doc-", suffix=suffix, delete=False)
-        handle.close()
-        try:
-            await tg_file.download_to_drive(custom_path=handle.name)
-            return handle.name
-        except Exception as exc:
-            with contextlib.suppress(OSError):
-                os.unlink(handle.name)
-            _console(f"document download failed: {exc.__class__.__name__}: {exc}")
-            return None
 
 
 import contextlib

@@ -24,7 +24,8 @@ from teleapp import (
     build_runtime_config,
 )
 from teleapp.context import MessageContext
-from teleapp.protocol import AppEvent
+from teleapp.protocol import AppEvent, decode_output_line
+from teleapp.supervisor import AppSupervisor
 
 
 class DummyHandler:
@@ -109,6 +110,33 @@ class TeleAppTests(unittest.TestCase):
         predicate, handler = app._routes[0]
         self.assertTrue(predicate(type("Ctx", (), {"text": "ping now"})()))
         self.assertEqual(handler, handle)
+
+    def test_supervisor_records_last_timing_on_completion(self) -> None:
+        app = TeleApp(build_runtime_config())
+        supervisor = AppSupervisor(app.config)
+        now = __import__("datetime").datetime.now()
+        supervisor._active_request = type(
+            "Req",
+            (),
+            {
+                "chat_id": 1,
+                "request_id": "1-1",
+                "text": "",
+                "command": "menu",
+                "queued_at": now,
+                "dispatched_at": now,
+                "first_event_at": None,
+            },
+        )()
+        event = decode_output_line(
+            '{"type":"buttons","text":"pick","chat_id":1,"request_id":"1-1","raw":{"buttons":[{"text":"A","data":"a"}]}}',
+            stream="stdout",
+        )
+        assert event is not None
+        __import__("asyncio").run(supervisor._complete_request(event))
+        timing = supervisor.state.chat_sessions[1].last_timing
+        self.assertEqual(timing["request_id"], "1-1")
+        self.assertEqual(timing["event_type"], "buttons")
 
     def test_run_overrides_basic_config_fields(self) -> None:
         app = TeleApp(build_runtime_config())

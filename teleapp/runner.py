@@ -4,6 +4,7 @@ import asyncio
 import os
 import subprocess
 import threading
+import time
 from pathlib import Path
 
 from teleapp.protocol import AppEvent, decode_output_line, encode_input_event
@@ -84,15 +85,48 @@ class ProcessRunner:
         self._process = None
 
         if process.poll() is None:
-            process.terminate()
-            try:
-                process.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                process.kill()
-                process.wait(timeout=5)
+            self._terminate_process_tree(process)
 
         self._close_streams(process)
         return process.pid
+
+    def _terminate_process_tree(self, process: subprocess.Popen[str]) -> None:
+        try:
+            process.terminate()
+            process.wait(timeout=3)
+            return
+        except subprocess.TimeoutExpired:
+            pass
+
+        if os.name == "nt":
+            try:
+                subprocess.run(
+                    ["taskkill", "/PID", str(process.pid), "/T", "/F"],
+                    capture_output=True,
+                    text=True,
+                    timeout=10,
+                    check=False,
+                )
+            except OSError:
+                pass
+            self._wait_for_process_exit(process, timeout=5)
+            return
+
+        process.kill()
+        process.wait(timeout=5)
+
+    @staticmethod
+    def _wait_for_process_exit(process: subprocess.Popen[str], timeout: float) -> None:
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            if process.poll() is not None:
+                return
+            time.sleep(0.1)
+        try:
+            process.kill()
+        except OSError:
+            pass
+        process.wait(timeout=5)
 
     def send_input(
         self,
