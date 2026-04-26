@@ -14,6 +14,7 @@ class ChatSessionState:
     status_messages: dict[str, int] = field(default_factory=dict)
     last_timing: dict[str, float | str | int] = field(default_factory=dict)
     status_rate_limited_until: float = 0.0
+    next_send_allowed_at: float = 0.0
 
 
 @dataclass(slots=True)

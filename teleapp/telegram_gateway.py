@@ -57,6 +57,8 @@ _MENU_COMMAND_DESCRIPTIONS: dict[str, str] = {
     "panic": "Emergency cleanup",
     "reset": "Reset thread state",
 }
+_MIN_CHAT_SEND_INTERVAL_SECONDS = 2.0
+_RETRY_AFTER_SAFETY_SECONDS = 1.0
 
 
 def _clip(text: str) -> str:
@@ -372,11 +374,12 @@ class TelegramGateway:
                     retry_seconds = _retry_after_seconds(exc)
                     if retry_seconds <= 0:
                         retry_seconds = 1.0
-                    if event.type == "status":
-                        now = asyncio.get_running_loop().time()
-                        next_allowed_at = now + retry_seconds
-                        if next_allowed_at > session.status_rate_limited_until:
-                            session.status_rate_limited_until = next_allowed_at
+                    now = asyncio.get_running_loop().time()
+                    next_allowed_at = now + retry_seconds + _RETRY_AFTER_SAFETY_SECONDS
+                    if next_allowed_at > session.next_send_allowed_at:
+                        session.next_send_allowed_at = next_allowed_at
+                    if event.type == "status" and next_allowed_at > session.status_rate_limited_until:
+                        session.status_rate_limited_until = next_allowed_at
                     _console(
                         "send event rate-limited: "
                         f"chat={target_chat_id} "
@@ -390,9 +393,16 @@ class TelegramGateway:
         raw = event.raw or {}
         event_type = event.type
         session = self._supervisor.state.chat_sessions.setdefault(chat_id, ChatSessionState(chat_id=chat_id))
+        now = asyncio.get_running_loop().time()
+        wait_seconds = session.next_send_allowed_at - now
+        if wait_seconds > 0:
+            if event_type == "status":
+                return
+            await asyncio.sleep(wait_seconds)
+            now = asyncio.get_running_loop().time()
         status_key = _safe_text(str(raw.get("status_key") or "")).strip()
         replace = bool(raw.get("replace"))
-        if event_type == "status" and session.status_rate_limited_until > asyncio.get_running_loop().time():
+        if event_type == "status" and session.status_rate_limited_until > now:
             return
 
         if event_type == "photo":
@@ -400,10 +410,12 @@ class TelegramGateway:
                 with open(raw["file_path"], "rb") as fh:
                     caption = _safe_text(raw.get("caption")) if raw.get("caption") else None
                     await app.bot.send_photo(chat_id=chat_id, photo=fh, caption=caption)
+                session.next_send_allowed_at = asyncio.get_running_loop().time() + _MIN_CHAT_SEND_INTERVAL_SECONDS
                 return
             if raw.get("file_id"):
                 caption = _safe_text(raw.get("caption")) if raw.get("caption") else None
                 await app.bot.send_photo(chat_id=chat_id, photo=raw["file_id"], caption=caption)
+                session.next_send_allowed_at = asyncio.get_running_loop().time() + _MIN_CHAT_SEND_INTERVAL_SECONDS
                 return
 
         if event_type == "animation":
@@ -411,10 +423,12 @@ class TelegramGateway:
                 with open(raw["file_path"], "rb") as fh:
                     caption = _safe_text(raw.get("caption")) if raw.get("caption") else None
                     await app.bot.send_animation(chat_id=chat_id, animation=fh, caption=caption)
+                session.next_send_allowed_at = asyncio.get_running_loop().time() + _MIN_CHAT_SEND_INTERVAL_SECONDS
                 return
             if raw.get("file_id"):
                 caption = _safe_text(raw.get("caption")) if raw.get("caption") else None
                 await app.bot.send_animation(chat_id=chat_id, animation=raw["file_id"], caption=caption)
+                session.next_send_allowed_at = asyncio.get_running_loop().time() + _MIN_CHAT_SEND_INTERVAL_SECONDS
                 return
 
         if event_type == "document":
@@ -422,18 +436,22 @@ class TelegramGateway:
                 with open(raw["file_path"], "rb") as fh:
                     caption = _safe_text(raw.get("caption")) if raw.get("caption") else None
                     await app.bot.send_document(chat_id=chat_id, document=fh, caption=caption)
+                session.next_send_allowed_at = asyncio.get_running_loop().time() + _MIN_CHAT_SEND_INTERVAL_SECONDS
                 return
             if raw.get("file_id"):
                 caption = _safe_text(raw.get("caption")) if raw.get("caption") else None
                 await app.bot.send_document(chat_id=chat_id, document=raw["file_id"], caption=caption)
+                session.next_send_allowed_at = asyncio.get_running_loop().time() + _MIN_CHAT_SEND_INTERVAL_SECONDS
                 return
 
         if event_type == "sticker" and raw.get("sticker"):
             await app.bot.send_sticker(chat_id=chat_id, sticker=raw["sticker"])
+            session.next_send_allowed_at = asyncio.get_running_loop().time() + _MIN_CHAT_SEND_INTERVAL_SECONDS
             return
 
         if event_type == "location" and raw.get("latitude") is not None and raw.get("longitude") is not None:
             await app.bot.send_location(chat_id=chat_id, latitude=raw["latitude"], longitude=raw["longitude"])
+            session.next_send_allowed_at = asyncio.get_running_loop().time() + _MIN_CHAT_SEND_INTERVAL_SECONDS
             return
 
         if (
@@ -450,6 +468,7 @@ class TelegramGateway:
                 title=raw["title"],
                 address=raw["address"],
             )
+            session.next_send_allowed_at = asyncio.get_running_loop().time() + _MIN_CHAT_SEND_INTERVAL_SECONDS
             return
 
         if event_type == "audio":
@@ -457,10 +476,12 @@ class TelegramGateway:
                 with open(raw["file_path"], "rb") as fh:
                     caption = _safe_text(raw.get("caption")) if raw.get("caption") else None
                     await app.bot.send_audio(chat_id=chat_id, audio=fh, caption=caption)
+                session.next_send_allowed_at = asyncio.get_running_loop().time() + _MIN_CHAT_SEND_INTERVAL_SECONDS
                 return
             if raw.get("file_id"):
                 caption = _safe_text(raw.get("caption")) if raw.get("caption") else None
                 await app.bot.send_audio(chat_id=chat_id, audio=raw["file_id"], caption=caption)
+                session.next_send_allowed_at = asyncio.get_running_loop().time() + _MIN_CHAT_SEND_INTERVAL_SECONDS
                 return
 
         if event_type == "voice":
@@ -468,10 +489,12 @@ class TelegramGateway:
                 with open(raw["file_path"], "rb") as fh:
                     caption = _safe_text(raw.get("caption")) if raw.get("caption") else None
                     await app.bot.send_voice(chat_id=chat_id, voice=fh, caption=caption)
+                session.next_send_allowed_at = asyncio.get_running_loop().time() + _MIN_CHAT_SEND_INTERVAL_SECONDS
                 return
             if raw.get("file_id"):
                 caption = _safe_text(raw.get("caption")) if raw.get("caption") else None
                 await app.bot.send_voice(chat_id=chat_id, voice=raw["file_id"], caption=caption)
+                session.next_send_allowed_at = asyncio.get_running_loop().time() + _MIN_CHAT_SEND_INTERVAL_SECONDS
                 return
 
         if event_type == "video":
@@ -479,10 +502,12 @@ class TelegramGateway:
                 with open(raw["file_path"], "rb") as fh:
                     caption = _safe_text(raw.get("caption")) if raw.get("caption") else None
                     await app.bot.send_video(chat_id=chat_id, video=fh, caption=caption)
+                session.next_send_allowed_at = asyncio.get_running_loop().time() + _MIN_CHAT_SEND_INTERVAL_SECONDS
                 return
             if raw.get("file_id"):
                 caption = _safe_text(raw.get("caption")) if raw.get("caption") else None
                 await app.bot.send_video(chat_id=chat_id, video=raw["file_id"], caption=caption)
+                session.next_send_allowed_at = asyncio.get_running_loop().time() + _MIN_CHAT_SEND_INTERVAL_SECONDS
                 return
 
         if event_type == "contact" and raw.get("phone_number") and raw.get("first_name"):
@@ -492,6 +517,7 @@ class TelegramGateway:
                 first_name=raw["first_name"],
                 last_name=raw.get("last_name") or None,
             )
+            session.next_send_allowed_at = asyncio.get_running_loop().time() + _MIN_CHAT_SEND_INTERVAL_SECONDS
             return
 
         if event_type == "poll" and raw.get("question") and raw.get("options"):
@@ -501,6 +527,7 @@ class TelegramGateway:
                 options=[_safe_text(str(item)) for item in raw["options"]],
                 allows_multiple_answers=bool(raw.get("allows_multiple_answers")),
             )
+            session.next_send_allowed_at = asyncio.get_running_loop().time() + _MIN_CHAT_SEND_INTERVAL_SECONDS
             return
 
         if event_type == "buttons":
@@ -511,6 +538,7 @@ class TelegramGateway:
             message = await app.bot.send_message(chat_id=chat_id, text=_clip(event.text), reply_markup=keyboard)
             if status_key and hasattr(message, "message_id"):
                 session.status_messages[status_key] = int(message.message_id)
+            session.next_send_allowed_at = asyncio.get_running_loop().time() + _MIN_CHAT_SEND_INTERVAL_SECONDS
             return
 
         text = _clip(self._render_event(event))
@@ -519,6 +547,7 @@ class TelegramGateway:
             if message_id:
                 try:
                     await app.bot.edit_message_text(chat_id=chat_id, message_id=message_id, text=text)
+                    session.next_send_allowed_at = asyncio.get_running_loop().time() + _MIN_CHAT_SEND_INTERVAL_SECONDS
                     return
                 except BadRequest as exc:
                     detail = str(exc).lower()
@@ -531,6 +560,7 @@ class TelegramGateway:
         message = await app.bot.send_message(chat_id=chat_id, text=text)
         if status_key and hasattr(message, "message_id"):
             session.status_messages[status_key] = int(message.message_id)
+        session.next_send_allowed_at = asyncio.get_running_loop().time() + _MIN_CHAT_SEND_INTERVAL_SECONDS
 
     @staticmethod
     def _build_message_context(update: Update) -> MessageContext:
