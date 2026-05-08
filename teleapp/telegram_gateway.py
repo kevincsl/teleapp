@@ -2,8 +2,11 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import os
 import re
 import sys
+import tempfile
+from pathlib import Path
 
 from telegram import (
     BotCommand,
@@ -313,7 +316,30 @@ class TelegramGateway:
         if message is None:
             return
         payload = self._build_message_context(update)
-        await self._supervisor.send_text(chat_id=update.effective_chat.id, text=payload.text)
+        raw: dict = {}
+        if payload.caption is not None:
+            raw["caption"] = payload.caption
+        if payload.document is not None:
+            local_path = await self._download_document_to_temp(context, payload.document.file_id, payload.document.file_name)
+            raw["document"] = {
+                "file_id": payload.document.file_id,
+                "file_unique_id": payload.document.file_unique_id,
+                "file_name": payload.document.file_name,
+                "mime_type": payload.document.mime_type,
+                "local_path": local_path,
+            }
+        elif payload.photos:
+            photo = payload.photos[-1]
+            file_name = f"photo_{photo.file_unique_id or photo.file_id}.jpg"
+            local_path = await self._download_document_to_temp(context, photo.file_id, file_name)
+            raw["document"] = {
+                "file_id": photo.file_id,
+                "file_unique_id": photo.file_unique_id,
+                "file_name": file_name,
+                "mime_type": "image/jpeg",
+                "local_path": local_path,
+            }
+        await self._supervisor.send_text(chat_id=update.effective_chat.id, text=payload.text, raw=raw or None)
 
     async def _command_input(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         if not self._is_allowed(update):
@@ -689,6 +715,26 @@ class TelegramGateway:
             raw_update=update,
         )
 
+
+    async def _download_document_to_temp(self, context: ContextTypes.DEFAULT_TYPE, file_id: str, file_name: str | None) -> str | None:
+        try:
+            tg_file = await context.bot.get_file(file_id)
+        except Exception as exc:
+            _console(f"document fetch failed: {exc.__class__.__name__}: {exc}")
+            return None
+
+        suffix = Path(file_name or "").suffix if file_name else ""
+        handle = tempfile.NamedTemporaryFile(prefix="teleapp-doc-", suffix=suffix, delete=False)
+        handle.close()
+        try:
+            await tg_file.download_to_drive(custom_path=handle.name)
+            return handle.name
+        except Exception as exc:
+            with contextlib.suppress(OSError):
+                os.unlink(handle.name)
+            _console(f"document download failed: {exc.__class__.__name__}: {exc}")
+            return None
+
     @staticmethod
     def _render_event(event: AppEvent) -> str:
         if event.type == "output":
@@ -700,4 +746,3 @@ class TelegramGateway:
         return f"[{event.type}] {event.text}"
 
 
-import contextlib
