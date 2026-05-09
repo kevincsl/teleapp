@@ -281,6 +281,50 @@ class GatewayTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(app.bot.calls[0][1]["chat_id"], 1)
         self.assertEqual(app.bot.calls[0][1]["message_id"], 321)
 
+    async def test_send_event_renders_fenced_code_block_for_copy_code(self) -> None:
+        gateway = TelegramGateway(self.config)
+        app = SimpleNamespace(bot=DummyBot())
+
+        await gateway._send_event(
+            app,
+            1,
+            AppEvent(type="output", text='Run this:\n```shell\ngit status\n```'),
+        )
+
+        self.assertEqual(app.bot.calls[0][0], "message")
+        kwargs = app.bot.calls[0][1]
+        self.assertEqual(kwargs["parse_mode"], "HTML")
+        self.assertIn('<pre><code class="language-shell">git status</code></pre>', kwargs["text"])
+
+    async def test_send_event_leaves_plain_text_without_parse_mode(self) -> None:
+        gateway = TelegramGateway(self.config)
+        app = SimpleNamespace(bot=DummyBot())
+
+        await gateway._send_event(app, 1, AppEvent(type="output", text="plain text"))
+
+        self.assertEqual(app.bot.calls[0][0], "message")
+        self.assertNotIn("parse_mode", app.bot.calls[0][1])
+
+    async def test_edit_message_renders_fenced_code_block_for_copy_code(self) -> None:
+        gateway = TelegramGateway(self.config)
+        app = SimpleNamespace(bot=DummyBot())
+        session = gateway.supervisor.state.chat_sessions.setdefault(1, ChatSessionState(chat_id=1))
+        session.status_messages["heartbeat"] = 321
+
+        await gateway._send_event(
+            app,
+            1,
+            AppEvent(
+                type="status",
+                text='```shell\ngit status\n```',
+                raw={"status_key": "heartbeat", "replace": True},
+            ),
+        )
+
+        self.assertEqual(app.bot.calls[0][0], "edit_message_text")
+        self.assertEqual(app.bot.calls[0][1]["parse_mode"], "HTML")
+        self.assertIn('<pre><code class="language-shell">git status</code></pre>', app.bot.calls[0][1]["text"])
+
     async def test_raw_buttons_force_keyboard_even_if_type_is_output(self) -> None:
         gateway = TelegramGateway(self.config)
         app = SimpleNamespace(bot=DummyBot())

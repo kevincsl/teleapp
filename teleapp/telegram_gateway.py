@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import html
 import os
 import re
 import sys
@@ -44,6 +45,7 @@ from teleapp.supervisor import AppSupervisor
 
 MESSAGE_LIMIT = 3900
 _RETRY_IN_SECONDS_RE = re.compile(r"retry(?:\s+in)?\s+(\d+(?:\.\d+)?)\s*seconds?", re.IGNORECASE)
+_FENCED_CODE_BLOCK_RE = re.compile(r"```([A-Za-z0-9_+.-]*)[ \t]*\n(.*?)```", re.DOTALL)
 _FIXED_MENU_COMMANDS: tuple[str, ...] = ("start", "help", "status", "restart", "menu", "brain", "schedules", "panic", "reset")
 _MENU_LANGUAGE_CODES: tuple[str, ...] = (
     "zh",
@@ -73,6 +75,38 @@ def _clip(text: str) -> str:
 
 def _safe_text(text: str | None) -> str:
     return (text or "").encode("utf-8", errors="replace").decode("utf-8")
+
+
+def _telegram_text_kwargs(text: str) -> dict[str, str]:
+    rendered = _render_fenced_code_blocks(text)
+    if rendered == text:
+        return {"text": text}
+    return {"text": rendered, "parse_mode": "HTML"}
+
+
+def _render_fenced_code_blocks(text: str) -> str:
+    clean = _safe_text(text)
+    if "```" not in clean:
+        return clean
+
+    parts: list[str] = []
+    cursor = 0
+    matched = False
+    for match in _FENCED_CODE_BLOCK_RE.finditer(clean):
+        matched = True
+        parts.append(html.escape(clean[cursor : match.start()], quote=False))
+        language = html.escape(match.group(1).strip(), quote=True)
+        code = html.escape(match.group(2).rstrip("\n"), quote=False)
+        if language:
+            parts.append(f'<pre><code class="language-{language}">{code}</code></pre>')
+        else:
+            parts.append(f"<pre><code>{code}</code></pre>")
+        cursor = match.end()
+
+    if not matched:
+        return clean
+    parts.append(html.escape(clean[cursor:], quote=False))
+    return "".join(parts)
 
 
 def _console(message: str) -> None:
@@ -561,7 +595,11 @@ class TelegramGateway:
             keyboard = InlineKeyboardMarkup(
                 [[InlineKeyboardButton(_safe_text(button["text"]), callback_data=button["data"])] for button in buttons]
             )
-            message = await app.bot.send_message(chat_id=chat_id, text=_clip(event.text), reply_markup=keyboard)
+            message = await app.bot.send_message(
+                chat_id=chat_id,
+                **_telegram_text_kwargs(_clip(event.text)),
+                reply_markup=keyboard,
+            )
             if status_key and hasattr(message, "message_id"):
                 session.status_messages[status_key] = int(message.message_id)
             session.next_send_allowed_at = asyncio.get_running_loop().time() + _MIN_CHAT_SEND_INTERVAL_SECONDS
@@ -572,7 +610,11 @@ class TelegramGateway:
             message_id = session.status_messages.get(status_key)
             if message_id:
                 try:
-                    await app.bot.edit_message_text(chat_id=chat_id, message_id=message_id, text=text)
+                    await app.bot.edit_message_text(
+                        chat_id=chat_id,
+                        message_id=message_id,
+                        **_telegram_text_kwargs(text),
+                    )
                     session.next_send_allowed_at = asyncio.get_running_loop().time() + _MIN_CHAT_SEND_INTERVAL_SECONDS
                     return
                 except BadRequest as exc:
@@ -583,7 +625,7 @@ class TelegramGateway:
                         raise
                     session.status_messages.pop(status_key, None)
 
-        message = await app.bot.send_message(chat_id=chat_id, text=text)
+        message = await app.bot.send_message(chat_id=chat_id, **_telegram_text_kwargs(text))
         if status_key and hasattr(message, "message_id"):
             session.status_messages[status_key] = int(message.message_id)
         session.next_send_allowed_at = asyncio.get_running_loop().time() + _MIN_CHAT_SEND_INTERVAL_SECONDS
@@ -744,5 +786,4 @@ class TelegramGateway:
         if event.type == "error":
             return f"[error] {event.text}"
         return f"[{event.type}] {event.text}"
-
 
